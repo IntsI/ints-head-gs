@@ -1,0 +1,19 @@
+{
+  "name": "ints-head-gs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "SPIKE: viability test for LAM animatable Gaussian-splat head as a replacement for the three.js mesh route. Throwaway — not a product.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "gaussian-splat-renderer-for-lam": "0.0.9-alpha.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
