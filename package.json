@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "gaussian-splat-renderer-for-lam": "0.0.9-alpha.1"
+    "gaussian-splat-renderer-for-lam": "0.0.9-alpha.1",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

@@ -34,12 +34,39 @@
         z-index: 5;
       }
       #boot.hidden { display: none; }
+
+      /* upload / drop zone */
+      #upload {
+        position: fixed;
+        bottom: 12px; left: 12px;
+        font: 12px/1.5 ui-monospace, monospace;
+        color: #cbd5e1;
+        background: rgba(8, 10, 14, 0.55);
+        backdrop-filter: blur(6px);
+        border: 1px dashed #3a4658;
+        border-radius: 8px;
+        padding: 9px 12px;
+        z-index: 10;
+        max-width: 360px;
+      }
+      #upload b { color: #7dd3fc; font-weight: 600; }
+      #upload label { color: #93c5fd; text-decoration: underline; cursor: pointer; }
+      #upload input { display: none; }
+      #upStatus { white-space: pre-wrap; margin-top: 4px; color: #94a3b8; }
+      #upStatus.ok { color: #86efac; }
+      #upStatus.err { color: #fca5a5; }
+      body.dragging #upload { border-color: #7dd3fc; background: rgba(20, 30, 45, 0.8); }
     </style>
   </head>
   <body>
     <div id="stage"><div id="gs"></div></div>
     <div id="hud">booting…</div>
     <div id="boot">loading Gaussian-splat avatar…</div>
+    <div id="upload">
+      <b>avatar</b> — drop a LAM OAC <code>.zip</code> anywhere, or
+      <label for="file">browse</label><input id="file" type="file" accept=".zip" />
+      <div id="upStatus">using bundled p2-1.zip</div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
