@@ -1,4 +1,5 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
+import { createDriver } from "./driver";
 import { createCursorPose } from "./pose";
 import {
   REQUIRED_FILES, inspectAvatarZip, repackZip, registerAvatarSW, cacheUpload,
@@ -25,6 +26,9 @@ const upStatus = document.getElementById("upStatus")!;
 const fps = makeFpsMeter();
 let lastPoll = performance.now() / 1000;
 let pose: ReturnType<typeof createCursorPose> = null;
+// Idle living base only: blink + micro brow/mouth drift + eye saccades + soft
+// breath, held at neutral (no expression keys, no speech clip). Feels alive.
+const driver = createDriver();
 
 const AVATAR = resolveAvatarPath(DEFAULT_AVATAR);
 
@@ -121,15 +125,17 @@ async function main() {
     }
   }
 
-  // Speech is OFF: return a neutral frame (no blendshapes). The head sits quiet;
-  // cursor-follow head pose still updates. Re-enable by looping an ARKit clip here.
+  // Speech OFF, but ALIVE: the driver holds neutral and layers the idle living
+  // base (blink, micro brow/mouth drift, eye saccades, soft breath). Plus
+  // cursor-follow head pose. No expression keys, no talk clip.
   function getExpressionData(): Record<string, number> {
     const now = performance.now() / 1000;
     const dt = Math.min(now - lastPoll, 0.05);
     lastPoll = now;
+    driver.update(dt);
     pose?.update(dt);
     fps.tick();
-    return {};
+    return driver.getFrame();
   }
 
   let renderer;
@@ -185,7 +191,7 @@ async function main() {
 
   setInterval(() => {
     hud.textContent =
-      `ints-head-gs · idle (speech off)\n` +
+      `ints-head-gs · idle — alive (blink + micro motion)\n` +
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
       `${pose ? " · move cursor to look" : ""}`;
   }, 200);
