@@ -16,8 +16,6 @@ import {
 
 // Re-point this (or use ?avatar=…) to load a different head.
 const DEFAULT_AVATAR = "./asset/arkit/p2-1.zip";
-// The "speak" animation — LAM's captured ARKit talk clip (52 blendshapes @ 30fps).
-const SPEECH_CLIP = "./asset/test_expression_1s.json";
 
 const gsDiv = document.getElementById("gs")!;
 const hud = document.getElementById("hud")!;
@@ -29,11 +27,6 @@ let lastPoll = performance.now() / 1000;
 let pose: ReturnType<typeof createCursorPose> = null;
 
 const AVATAR = resolveAvatarPath(DEFAULT_AVATAR);
-
-interface SpeechClip {
-  names: string[];
-  frames: { weights: number[] }[];
-}
 
 function setStatus(msg: string, cls: "" | "ok" | "err" = "") {
   upStatus.textContent = msg;
@@ -128,25 +121,15 @@ async function main() {
     }
   }
 
-  // Load the speak clip up front (the renderer polls getExpressionData per frame).
-  const clip = (await (await fetch(SPEECH_CLIP)).json()) as SpeechClip;
-  const FRAME_DT = 1 / 30; // clip authored at 30fps
-  const clipDur = clip.frames.length * FRAME_DT;
-  const t0 = performance.now() / 1000;
-
-  // The only driver now: loop the captured talk clip → natural speech, plus
-  // advance cursor-follow head pose. No expression keys.
+  // Speech is OFF: return a neutral frame (no blendshapes). The head sits quiet;
+  // cursor-follow head pose still updates. Re-enable by looping an ARKit clip here.
   function getExpressionData(): Record<string, number> {
     const now = performance.now() / 1000;
     const dt = Math.min(now - lastPoll, 0.05);
     lastPoll = now;
     pose?.update(dt);
     fps.tick();
-    const tt = (now - t0) % clipDur;
-    const frame = clip.frames[Math.floor(tt / FRAME_DT)].weights;
-    const out: Record<string, number> = {};
-    clip.names.forEach((n, i) => (out[n] = frame[i]));
-    return out;
+    return {};
   }
 
   let renderer;
@@ -202,7 +185,7 @@ async function main() {
 
   setInterval(() => {
     hud.textContent =
-      `ints-head-gs · speaking\n` +
+      `ints-head-gs · idle (speech off)\n` +
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
       `${pose ? " · move cursor to look" : ""}`;
   }, 200);
