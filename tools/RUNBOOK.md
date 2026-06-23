@@ -36,7 +36,7 @@ Setup ~30–60 min; the bake itself is fast. No kernel restart.
 |---|------|--------------------|-------------|
 | 1 | GPU + CUDA + Python report | T4 shown, `CUDA available: True` | No GPU → Change runtime type → T4; Restart & run all |
 | 1b | Miniforge + **conda env `lam` (py3.10)**; defines `RUN` | `env python: 3.10.x`, `RUN = …` | see **conda env** below |
-| 2 | clone LAM + install **into env** (cu121/cu118 auto) | `INSTALL DONE` | see **CUDA / build** (~20–40 min) |
+| 2 | clone LAM + install **into env** (build deps first, `--no-build-isolation`, fail-loud) | `INSTALL DONE` + `IMPORTS_OK` | see **CUDA / build** (~20–40 min) |
 | 3 | HF weights + assets (via env) | `WEIGHTS + ASSETS OK` | token optional (repos public); rate-limited → paste a token |
 | 4 | Blender + **FBX SDK into env** | `BLENDER OK` + `import fbx OK (in 3.10 env)` | see **FBX / Blender** |
 | 5 | upload portrait (kernel) | `Saved: assets/sample_input/fisherman.jpg` | front-facing, well-lit image |
@@ -55,11 +55,24 @@ Setup ~30–60 min; the bake itself is fast. No kernel restart.
   runs in Colab's 3.12 kernel and the FBX import fails.
 
 ### CUDA / build failures (Cell 2)
-- Installs torch 2.3.0 (+cu121/cu118) and **compiles** `pytorch3d`,
-  `diff-gaussian-rasterization`, `nvdiffrast`, `simple-knn` **inside the env**.
-  Slowest, most failure-prone step. Colab T4 = CUDA 12 → cu121 (auto-detected).
-- `pytorch3d` build error → prebuilt wheel (py310/cu121/pyt2.5.1; may mismatch
-  torch 2.3.0, try only if source build fails):
+- Order matters: torch+xformers wheels → **pre-install build deps** (`Cython`,
+  `ninja`, `numpy==1.23.0`, `setuptools`, `wheel`) → `pip install
+  --no-build-isolation -r requirements.txt` → FaceBoxesV2 `make.sh`. The
+  `--no-build-isolation` is what fixes **`No module named 'Cython'`** /
+  `torch not found` during source builds: pip's default isolation hides the env's
+  packages from `pytorch3d`, `diff-gaussian-rasterization`, `nvdiffrast`,
+  `simple-knn`, `pymcubes`, and FaceBoxes' Cython ext. Pre-installing the build
+  deps + turning isolation off lets every source build see them.
+- **Fail-loud:** each step runs via `subprocess.run(check=True)`, so a non-zero
+  exit raises and the cell errors. `INSTALL DONE` (and the `IMPORTS_OK` check that
+  imports torch/pytorch3d/diff_gaussian_rasterization/simple_knn in the env) only
+  appears on full success. No more false "DONE".
+- Build-time deps audited from `requirements.txt`: `pymcubes`→Cython+numpy,
+  `chumpy`→numpy, the 4 git pkgs→torch(+ninja+numpy), FaceBoxes→Cython — all
+  pre-installed. `tensorflow`/`jaxlib`/`face-detection-tflite` ship wheels (no
+  build).
+- `pytorch3d` still failing → prebuilt wheel (py310/cu121/pyt2.5.1; may mismatch
+  torch 2.3.0, last resort):
   `!{RUN} pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt251/download.html`
 - `nvcc: not found` → `!apt-get install -y cuda-toolkit-12-1`, re-run. (conda run
   keeps the system PATH, so `/usr/local/cuda/bin/nvcc` is still found.)
