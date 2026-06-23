@@ -1,5 +1,4 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
-import { createDriver, RECIPES } from "./driver";
 import { createCursorPose } from "./pose";
 import {
   REQUIRED_FILES, inspectAvatarZip, registerAvatarSW, cacheUpload,
@@ -8,36 +7,33 @@ import {
 
 /**
  * Boot.
- *   GATE 2: semantic driver feeds the renderer's pull-model getExpressionData.
- *   GATE 3: keyboard triggers (same mapping as ints-head) + LIVE cursor-follow
- *           head rotation via the skeleton's head/neck bones.
+ *   Behaviour: the head just SPEAKS — it loops LAM's sample ARKit talk clip
+ *   (asset/test_expression_1s.json), exactly like the original model. The old
+ *   keyboard-driven expression system was removed: it disturbed the natural look.
+ *   Plus live cursor-follow head rotation (doesn't touch the face).
  *   Custom avatar: ?avatar=<url> / DEFAULT_AVATAR, or drop a LAM OAC zip.
- *
- * Drive it from the console:  __gs.setExpression("smug")  ·  __gs.keys
  */
 
 // Re-point this (or use ?avatar=…) to load a different head.
 const DEFAULT_AVATAR = "./asset/arkit/p2-1.zip";
-
-// keyboard → expression — IDENTICAL mapping to ints-head/src/main.ts.
-const KEY_MAP: Record<string, string> = {
-  Digit0: "neutral", KeyN: "neutral",
-  Digit1: "smile", Digit2: "suspicious", Digit3: "smug", Digit4: "shock",
-  Digit5: "unimpressed", Digit6: "angry", Digit7: "sad", Digit8: "wink",
-  Digit9: "tongue", KeyB: "beam", KeyC: "crazy", KeyD: "disgust", KeyK: "kiss",
-};
+// The "speak" animation — LAM's captured ARKit talk clip (52 blendshapes @ 30fps).
+const SPEECH_CLIP = "./asset/test_expression_1s.json";
 
 const gsDiv = document.getElementById("gs")!;
 const hud = document.getElementById("hud")!;
 const boot = document.getElementById("boot");
 const upStatus = document.getElementById("upStatus")!;
 
-const driver = createDriver();
 const fps = makeFpsMeter();
 let lastPoll = performance.now() / 1000;
 let pose: ReturnType<typeof createCursorPose> = null;
 
 const AVATAR = resolveAvatarPath(DEFAULT_AVATAR);
+
+interface SpeechClip {
+  names: string[];
+  frames: { weights: number[] }[];
+}
 
 function setStatus(msg: string, cls: "" | "ok" | "err" = "") {
   upStatus.textContent = msg;
@@ -102,16 +98,26 @@ async function main() {
     const name = AVATAR.split("/").pop() ?? AVATAR;
     setStatus(`loading ${name}…`);
   }
-  // The renderer polls this every rendered frame. We advance the driver + pose
-  // here (dt from wall clock) and hand back the current ARKit coefficients.
+
+  // Load the speak clip up front (the renderer polls getExpressionData per frame).
+  const clip = (await (await fetch(SPEECH_CLIP)).json()) as SpeechClip;
+  const FRAME_DT = 1 / 30; // clip authored at 30fps
+  const clipDur = clip.frames.length * FRAME_DT;
+  const t0 = performance.now() / 1000;
+
+  // The only driver now: loop the captured talk clip → natural speech, plus
+  // advance cursor-follow head pose. No expression keys.
   function getExpressionData(): Record<string, number> {
     const now = performance.now() / 1000;
-    const dt = Math.min(now - lastPoll, 0.05); // clamp tab-switch spikes
+    const dt = Math.min(now - lastPoll, 0.05);
     lastPoll = now;
-    driver.update(dt);
     pose?.update(dt);
     fps.tick();
-    return driver.getFrame();
+    const tt = (now - t0) % clipDur;
+    const frame = clip.frames[Math.floor(tt / FRAME_DT)].weights;
+    const out: Record<string, number> = {};
+    clip.names.forEach((n, i) => (out[n] = frame[i]));
+    return out;
   }
 
   let renderer;
@@ -130,8 +136,7 @@ async function main() {
 
   // getInstance can swallow internal errors and resolve undefined (e.g. it throws
   // 'file fold is not found' when the zip has no top-level directory entry). Catch
-  // that here with a clear message instead of letting it cascade into
-  // createCursorPose as "Cannot read properties of undefined (reading 'viewer')".
+  // that here with a clear message instead of letting it cascade.
   if (!renderer || !(renderer as { viewer?: unknown }).viewer) {
     const name = AVATAR.split("/").pop() ?? AVATAR;
     const msg =
@@ -151,7 +156,7 @@ async function main() {
     );
   }
 
-  // GATE 3 — cursor-follow head rotation (live bone drive).
+  // cursor-follow head rotation (live bone drive; doesn't touch the face).
   pose = createCursorPose(renderer);
   if (pose) {
     window.addEventListener("pointermove", (e) => {
@@ -164,27 +169,13 @@ async function main() {
     console.warn("[pose] head bone not found — cursor-follow disabled");
   }
 
-  // GATE 3 — keyboard expression triggers.
-  window.addEventListener("keydown", (e) => {
-    const name = KEY_MAP[e.code];
-    if (name) driver.setExpression(name);
-  });
-
-  (window as unknown as { __gs: unknown }).__gs = {
-    renderer,
-    driver,
-    pose,
-    setExpression: (k: string) => driver.setExpression(k),
-    keys: Object.keys(RECIPES),
-  };
+  (window as unknown as { __gs: unknown }).__gs = { renderer, pose };
 
   setInterval(() => {
     hud.textContent =
-      `ints-head-gs · GATE 3 (driver + cursor-follow)\n` +
+      `ints-head-gs · speaking\n` +
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
-      ` · expr: ${driver.current()}\n` +
-      `keys 0-9 N B C D K · move cursor to look` +
-      `${pose ? "" : " · (pose OFF)"}`;
+      `${pose ? " · move cursor to look" : ""}`;
   }, 200);
 }
 
