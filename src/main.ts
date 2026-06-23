@@ -26,6 +26,7 @@ const upStatus = document.getElementById("upStatus")!;
 const fps = makeFpsMeter();
 let lastPoll = performance.now() / 1000;
 let pose: ReturnType<typeof createCursorPose> = null;
+let breathe: ((t: number) => Record<string, number>) | null = null;
 // Idle living base only: blink + micro brow/mouth drift + eye saccades + soft
 // breath, held at neutral (no expression keys, no speech clip). Feels alive.
 const driver = createDriver();
@@ -135,7 +136,12 @@ async function main() {
     driver.update(dt);
     pose?.update(dt);
     fps.tick();
-    return driver.getFrame();
+    const frame = driver.getFrame();
+    // breathe() moves the bust (chest rise + slight lean) AND returns breath-synced
+    // blendshape deltas (nostrils + a touch of mouth) to merge on top.
+    const bd = breathe?.(now);
+    if (bd) for (const k in bd) frame[k] = Math.min(1, (frame[k] ?? 0) + bd[k]);
+    return frame;
   }
 
   let renderer;
@@ -195,6 +201,8 @@ async function main() {
   framing.apply();
   setTimeout(() => framing.apply(), 400); // re-assert after the renderer settles
 
+  breathe = createBreath(renderer); // calm, slight breathing on the bust
+
   (window as unknown as { __gs: unknown }).__gs = {
     renderer, pose, framing,
     setFrame: (p: { dist?: number; dy?: number }) => framing.setFrame(p),
@@ -208,6 +216,36 @@ async function main() {
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
       `${pose ? " · move cursor to look" : ""}`;
   }, 200);
+}
+
+// Calm, slight breathing. The mixer clobbers every bone, so we breathe via the
+// splatMesh transform (it holds): a small chest rise + a slight forward lean, plus
+// breath-synced nostril flare and a touch of mouth (ARKit blendshapes, returned to
+// be merged into the frame). ~13 breaths/min.
+function createBreath(renderer: unknown): ((t: number) => Record<string, number>) | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sm: any = (renderer as any).viewer?.splatMesh;
+  if (!sm) return null;
+  const baseY = sm.position.y, baseZ = sm.position.z;
+  const sx = sm.scale.x, sy = sm.scale.y, sz = sm.scale.z;
+  const PERIOD = 4.6; // seconds per breath (~13/min, calm)
+  const BOB = 0.005;  // vertical chest rise (world units, slight)
+  const LEAN = 0.004; // back/forth micro-lean
+  const SWELL = 0.004; // uniform swell (chest filling), 0.4%
+  return (t: number) => {
+    const s = Math.sin((t % PERIOD) / PERIOD * Math.PI * 2); // -1..1
+    const inhale = (s + 1) / 2; // 0..1, peak at full inhale
+    sm.position.y = baseY + s * BOB;
+    sm.position.z = baseZ + s * LEAN;
+    const k = 1 + inhale * SWELL;
+    sm.scale.set(sx * k, sy * k, sz * k);
+    // nostrils flare + mouth eases on the inhale — slight
+    return {
+      noseSneerLeft: inhale * 0.05,
+      noseSneerRight: inhale * 0.05,
+      jawOpen: inhale * 0.015,
+    };
+  };
 }
 
 // Persistent, tunable camera framing. Aims the renderer's OrbitControls at the
