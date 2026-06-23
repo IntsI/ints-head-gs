@@ -27,6 +27,9 @@ const MAX_PITCH = 0.3;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export function createCursorPose(renderer: unknown): PoseHandle | null {
+  // Defensive: a failed renderer init can hand us undefined (or an object with no
+  // viewer). Return null rather than throwing a cryptic "reading 'viewer'".
+  if (!renderer) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const v: any = (renderer as any).viewer;
   const scene = v?.scene || v?.threeScene || v?.splatMesh?.parent;

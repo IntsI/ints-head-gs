@@ -172,11 +172,18 @@ def main() -> None:
     if os.path.exists(out_zip):
         os.remove(out_zip)
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as z:
+        # The renderer finds the avatar folder by scanning for a DIRECTORY ENTRY
+        # (dir==true). Python's zipfile writes only file entries by default, so we
+        # must add the directory entry explicitly or the loader throws
+        # 'file fold is not found'. (See tools/repack_oac.py / docs/AVATAR_FORMAT.md.)
+        di = zipfile.ZipInfo(base_iid + "/")
+        di.external_attr = (0o40755 << 16) | 0x10  # unix dir bit + MS-DOS dir flag
+        z.writestr(di, b"")
         for f in required:
             z.write(os.path.join(oac_dir, f), arcname=os.path.join(base_iid, f))
 
     print("\n✅ OAC zip ready:", os.path.abspath(out_zip))
-    print("   inner folder:", base_iid, "(== zip name; matches docs/AVATAR_FORMAT.md)")
+    print("   inner folder:", base_iid, "(with directory entry; matches docs/AVATAR_FORMAT.md)")
     print("   contents:", ", ".join(required))
 
 

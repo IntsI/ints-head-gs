@@ -67,7 +67,20 @@ export async function inspectAvatarZip(data: ArrayBuffer): Promise<ZipCheck> {
     else missing.push(f);
   }
 
-  return { ok: missing.length === 0, folder, present, missing, notes };
+  // The renderer discovers the folder from an explicit DIRECTORY ENTRY (a member
+  // whose name ends in "/"). A zip written by Python's zipfile has file entries
+  // only -> the renderer throws 'file fold is not found'. Catch it here.
+  const hasDirEntry = Object.values(zip.files).some(
+    (f) => f.dir && !f.name.startsWith("__MACOSX"),
+  );
+  if (!hasDirEntry) {
+    notes.push(
+      "no directory entry in zip — renderer would throw 'file fold is not found'. " +
+        "Repack with tools/repack_oac.py.",
+    );
+  }
+
+  return { ok: missing.length === 0 && hasDirEntry, folder, present, missing, notes };
 }
 
 /** Register the SW that serves cached uploads. No-op if unsupported. */

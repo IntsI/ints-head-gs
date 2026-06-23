@@ -128,6 +128,20 @@ async function main() {
     throw err;
   }
 
+  // getInstance can swallow internal errors and resolve undefined (e.g. it throws
+  // 'file fold is not found' when the zip has no top-level directory entry). Catch
+  // that here with a clear message instead of letting it cascade into
+  // createCursorPose as "Cannot read properties of undefined (reading 'viewer')".
+  if (!renderer || !(renderer as { viewer?: unknown }).viewer) {
+    const name = AVATAR.split("/").pop() ?? AVATAR;
+    const msg =
+      `✗ renderer did not initialise for ${name}. Most likely the avatar zip is ` +
+      `missing its top-level directory entry — repack it with tools/repack_oac.py ` +
+      `(see docs/AVATAR_FORMAT.md). Check the console for the renderer's own error.`;
+    setStatus(msg, "err");
+    throw new Error(msg);
+  }
+
   boot?.classList.add("hidden");
   {
     const name = AVATAR.split("/").pop() ?? AVATAR;

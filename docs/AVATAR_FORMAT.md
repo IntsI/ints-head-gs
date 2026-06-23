@@ -24,21 +24,39 @@ vertex_order.json   splat → mesh-vertex index map
 ```
 Miss any one and the renderer's default load path throws.
 
-### The inner-folder-name == zip-name constraint
-The 4 files must sit inside a **single top-level folder whose name exactly
-equals the zip's filename (without `.zip`)**:
+### The zip MUST contain an explicit DIRECTORY ENTRY (the real gotcha)
+The 4 files must sit inside a **single top-level folder, and that folder must
+exist in the zip as an explicit directory entry** (a zip member whose name ends
+in `/`):
 ```
 myhead.zip
-└── myhead/                ← folder name MUST equal "myhead"
-    ├── skin.glb
-    ├── offset.ply
-    ├── animation.glb
-    └── vertex_order.json
+├── myhead/                ← REQUIRED explicit directory entry (a real zip member)
+│   ├── skin.glb
+│   ├── offset.ply
+│   ├── animation.glb
+│   └── vertex_order.json
 ```
-Why: the renderer parses the name from the URL (`/<name>.zip`) and then reads
-`<name>/skin.glb` by **exact path** (JSZip). `alice.zip` containing `bob/…`
-will NOT load — rename one so they match. (macOS `__MACOSX/` + `.DS_Store`
-junk is ignored.)
+Why (verified against the renderer bundle): on load it scans the zip for a
+directory member to discover the folder name —
+```js
+let fileName = '';
+Object.values(zipData.files).forEach(f => { if (f.dir) fileName = f.name.slice(0,-1); });
+if (!fileName) throw new Error('file fold is not found');   // <-- no dir entry => this
+```
+and then reads `fileName + '/skin.glb'` etc. **The folder name comes from the
+directory entry, NOT from the zip filename** — the URL only needs to end in
+`something.zip` (any name). So:
+- A zip with `myhead/skin.glb` … but **no `myhead/` directory member** fails with
+  `Error: file fold is not found`. This is exactly what a Python `zipfile`-built
+  zip looks like (file entries only). The `zip` CLI / `patoolib` (what LAM's own
+  `app_lam.py` uses) DO write the directory entry — which is why a Gradio export
+  loads but an early `colab_bake_oac.py` bake didn't.
+- **Fix any existing zip:** `python tools/repack_oac.py <bake>.zip` — adds the
+  directory entry and normalizes the folder to the zip's basename. The current
+  `colab_bake_oac.py` now writes the directory entry itself, so new bakes are fine.
+- Convention: keep the folder name == the zip basename (LAM does, and it keeps
+  things obvious), but only the *presence* of the directory entry is enforced.
+- macOS `__MACOSX/` + `.DS_Store` junk is ignored.
 
 ### What the validator checks and how it reports problems
 `src/avatar.ts` → `inspectAvatarZip(bytes)` runs on every drag-drop/file-input
