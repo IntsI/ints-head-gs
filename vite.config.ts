@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
   };
 });
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-2.5-flash-lite"; // generous free tier; flash hit the 20/day cap
 const TTS_VOICE = "en-US-Neural2-D"; // natural US male; change languageCode/name to taste
 // emotions Gemini may pick — must be keys the driver's RECIPES support
 const EMOTIONS = [
@@ -58,10 +58,11 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
     req.on("error", reject);
   });
 }
-// Gemini flash can return transient 503 (UNAVAILABLE) / 429 under load — retry a few times.
+// Retry only transient 503 (UNAVAILABLE / overload). NOT 429 — that's a quota cap,
+// and retrying it just burns more of the quota and delays the error.
 async function fetchRetry(url: string, init: RequestInit, tries = 3): Promise<Response> {
   let r = await fetch(url, init);
-  for (let i = 1; i < tries && (r.status === 503 || r.status === 429); i++) {
+  for (let i = 1; i < tries && r.status === 503; i++) {
     await new Promise((res) => setTimeout(res, 400 * i + 300));
     r = await fetch(url, init);
   }
