@@ -84,11 +84,15 @@ one small ext that has no wheel.
 - `numpy==1.23.0` downgrade warnings are expected.
 
 ### FBX / Blender (Cell 4)
-- Blender 4.0.2 is a standalone binary (kernel-agnostic). The cp310 FBX wheel goes
-  into the **env** via `{RUN} pip install`; the cell asserts `import fbx` *inside
-  the env* (`conda run -n lam python -c "import fbx"`).
-- `import fbx` fails in env → the env isn't really 3.10 (re-check Cell 1b) or the
-  wheel download failed (re-run the wget).
+- Blender 4.0.2 is a standalone binary (kernel-agnostic).
+- FBX: the cell first checks `import fbx` *inside the env*. If it already imports
+  (it often does — pulled in transitively), it **skips the wheel install**. Only
+  if the import fails does it download the cp310 wheel **with its real filename**
+  (`fbx-2020.3.4-cp310-...whl` — pip rejects a renamed `fbx.whl`), validate it's a
+  real zip, install, and re-check.
+- `import fbx` fails *and* the wheel install also fails → the env isn't really
+  3.10 (re-check Cell 1b) or the OSS wheel URL is unreachable (the validation
+  asserts on a bad/empty download).
 - Blender headless won't start → the cell installs `libxi6 libxxf86vm1 libxfixes3
   libxrender1 libgl1 libsm6` and retries; if still failing,
   `ldd /content/blender-4.0.2-linux-x64/blender | grep 'not found'` and apt-install
