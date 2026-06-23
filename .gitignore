@@ -5,3 +5,4 @@ dist
 __pycache__/
 *.pyc
 public/asset/avatars/ints*.zip
+.env

@@ -80,20 +80,40 @@
         font: 12px ui-monospace, monospace; outline: none;
       }
       #phrase:focus { border-color: #7dd3fc; }
-      #say {
+      #say, #mic {
         background: #7dd3fc; color: #0a0c10; border: none; border-radius: 6px;
         padding: 5px 12px; font: 600 12px ui-monospace, monospace; cursor: pointer;
       }
-      #say:hover { background: #a5e0fb; }
+      #say:hover, #mic:hover { background: #a5e0fb; }
+      #mic { background: #475569; color: #e2e8f0; }
+      #mic:hover { background: #57647a; }
+      #mic.listening { background: #f87171; color: #0a0c10; }
+      #mic.unsupported { opacity: 0.4; cursor: not-allowed; }
+      #chatStatus {
+        position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%);
+        font: 11px ui-monospace, monospace; color: #94a3b8; z-index: 10;
+        max-width: 70vw; text-align: center; white-space: pre-wrap;
+      }
+      #chatStatus.ok { color: #86efac; } #chatStatus.err { color: #fca5a5; }
+      #reply {
+        position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+        max-width: 60vw; text-align: center; z-index: 10;
+        font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; color: #e2e8f0;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.7); pointer-events: none;
+      }
+      #reply:empty { display: none; }
     </style>
   </head>
   <body>
     <div id="stage"><div id="gs"></div></div>
     <div id="hud">booting…</div>
     <div id="boot">loading Gaussian-splat avatar…</div>
+    <div id="reply"></div>
+    <div id="chatStatus"></div>
     <div id="speech">
-      <input id="phrase" type="text" value="Hello, I am your digital head. Watch my mouth move." />
-      <button id="say">say</button>
+      <button id="mic" title="speak (Web Speech API)">🎤</button>
+      <input id="phrase" type="text" placeholder="say something to the head…" />
+      <button id="say">send</button>
     </div>
     <div id="upload">
       <b>avatar</b> — drop a LAM OAC <code>.zip</code> anywhere, or

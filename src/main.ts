@@ -1,6 +1,7 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
 import { createDriver } from "./driver";
 import { createSpeech } from "./speech";
+import { createChat } from "./chat";
 import { createCursorPose } from "./pose";
 import {
   REQUIRED_FILES, inspectAvatarZip, repackZip, registerAvatarSW, cacheUpload,
@@ -223,7 +224,7 @@ async function main() {
     setMoodTiming: (p: { hold?: number; fade?: number }) => driver.setMoodTiming(p),
   };
 
-  wireSpeechUI();
+  wireChatUI();
   void buildVariantSwitcher();
 
   setInterval(() => {
@@ -279,14 +280,39 @@ function disableViewerKeys(renderer: unknown) {
   }
 }
 
-// Speech test UI: type a phrase, "say" → speech.speak() (stub text→viseme timing).
-function wireSpeechUI() {
+// Conversational loop UI: text/mic -> Gemini -> Google TTS -> head speaks + emotes.
+function wireChatUI() {
   const input = document.getElementById("phrase") as HTMLInputElement | null;
-  const btn = document.getElementById("say");
-  if (!input || !btn) return;
-  const say = () => { if (input.value.trim()) speech.speak(input.value.trim()); };
-  btn.addEventListener("click", say);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") say(); });
+  const sendBtn = document.getElementById("say");
+  const micBtn = document.getElementById("mic");
+  const status = document.getElementById("chatStatus");
+  const reply = document.getElementById("reply");
+  if (!input || !sendBtn || !micBtn) return;
+
+  const setStatus = (m: string, k: "" | "ok" | "err" = "") => {
+    if (status) { status.textContent = m; status.className = k; }
+  };
+
+  const chat = createChat({
+    speak: (seq) => speech.speak(seq),       // real-timed viseme sequence
+    setExpression: (key) => driver.setExpression(key), // mood lands then auto-fades
+    onReply: (t) => { if (reply) reply.textContent = t; },
+    onStatus: setStatus,
+    onTranscript: (t) => { input.value = t; },
+    onMicState: (on) => micBtn.classList.toggle("listening", on),
+  });
+
+  if (!chat.micSupported) {
+    micBtn.classList.add("unsupported");
+    micBtn.title = "mic unavailable — this browser has no Web Speech API (use Chrome)";
+  }
+
+  const send = () => { if (input.value.trim()) void chat.send(input.value.trim()); };
+  sendBtn.addEventListener("click", send);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  micBtn.addEventListener("click", () => chat.toggleMic());
+
+  (window as unknown as { __chat: unknown }).__chat = chat;
 }
 
 // Persistent, tunable camera framing. Aims the renderer's OrbitControls at the

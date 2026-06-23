@@ -72,28 +72,65 @@ export interface TextOpts {
   gapDur?: number;    // silence between words (default 0.07)
 }
 
+/** One word → ordered viseme keys (no timing). Digraphs first, collapse repeats. */
+export function wordToVisemeKeys(word: string): string[] {
+  const w = word.toLowerCase().replace(/[^a-z]/g, "");
+  const keys: string[] = [];
+  let i = 0;
+  let last = "";
+  while (i < w.length) {
+    const two = w.slice(i, i + 2);
+    let v: string | undefined;
+    if (DIGRAPHS[two]) { v = DIGRAPHS[two]; i += 2; }
+    else { v = LETTERS[w[i]]; i += 1; }
+    if (!v || v === "sil") continue;
+    if (v === last) continue; // collapse repeats (e.g. "ll")
+    last = v;
+    keys.push(v);
+  }
+  return keys;
+}
+
 /** Stub: map text to an evenly-timed viseme sequence. Timing is FAKED. */
 export function textToVisemes(text: string, opts: TextOpts = {}): VisemeSegment[] {
   const dur = opts.visemeDur ?? 0.09;
   const gap = opts.gapDur ?? 0.07;
   const segs: VisemeSegment[] = [];
   let t = 0;
-  const push = (viseme: string, d: number) => { segs.push({ viseme, startTime: t, duration: d }); t += d; };
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    for (const v of wordToVisemeKeys(word)) { segs.push({ viseme: v, startTime: t, duration: dur }); t += dur; }
+    segs.push({ viseme: "sil", startTime: t, duration: gap }); t += gap; // brief close between words
+  }
+  return segs;
+}
 
-  for (const word of text.toLowerCase().split(/\s+/).filter(Boolean)) {
-    let i = 0;
-    let last = "";
-    while (i < word.length) {
-      const two = word.slice(i, i + 2);
-      let v: string | undefined;
-      if (DIGRAPHS[two]) { v = DIGRAPHS[two]; i += 2; }
-      else { v = LETTERS[word[i]]; i += 1; }
-      if (!v || v === "sil") continue;
-      if (v === last) continue; // collapse repeats (e.g. "ll")
-      last = v;
-      push(v, dur);
-    }
-    push("sil", gap); // brief close between words
+/**
+ * REAL-timing path: build a viseme sequence from Google TTS SSML-mark timepoints.
+ * Each word's viseme SHAPES come from wordToVisemeKeys(); the TIMING is anchored
+ * to the actual audio — each word's visemes are spread across the measured
+ * [wordStart, nextWordStart) window. So the mouth syncs to the real voice at word
+ * granularity (sub-word visemes are evenly interpolated within each word).
+ *
+ * @param words       the words the SSML marks were inserted before (aligned to marks)
+ * @param timepoints  [{markName:'w0', timeSeconds}] from TTS enableTimePointing
+ * @param totalDur    audio duration (s) — closes the last word
+ */
+export function visemesFromTimepoints(
+  words: string[],
+  timepoints: { markName: string; timeSeconds: number }[],
+  totalDur: number,
+): VisemeSegment[] {
+  const at = new Map(timepoints.map((tp) => [tp.markName, tp.timeSeconds]));
+  const segs: VisemeSegment[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const start = at.get(`w${i}`);
+    if (start == null) continue;
+    const end = at.get(`w${i + 1}`) ?? totalDur;
+    const span = Math.max(end - start, 0.04);
+    const keys = wordToVisemeKeys(words[i]);
+    if (keys.length === 0) continue;
+    const each = span / keys.length;
+    keys.forEach((v, j) => segs.push({ viseme: v, startTime: start + j * each, duration: each }));
   }
   return segs;
 }
