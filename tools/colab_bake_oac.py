@@ -88,9 +88,14 @@ def main() -> None:
         detect_iris_landmarks=False,
     )
 
-    motion_seqs_dir = find_motion(args.motion)
+    clip_dir = find_motion(args.motion)
+    # LAM's core_fn passes the clip's `flame_param` subdir; prepare_motion_seqs then
+    # reads transforms.json from its PARENT (the clip dir). Passing the clip dir
+    # itself makes it look for transforms.json one level too high.
+    motion_seqs_dir = os.path.join(clip_dir, "flame_param")
+    assert os.path.isdir(motion_seqs_dir), f"missing flame_param dir: {motion_seqs_dir}"
     base_iid = os.path.basename(args.image).split(".")[0]
-    print(f"image={args.image}  iid={base_iid}  motion={motion_seqs_dir}")
+    print(f"image={args.image}  iid={base_iid}  clip={clip_dir}  motion_seqs_dir={motion_seqs_dir}")
 
     # --- flame tracking on the input image (core_fn steps) -------------------
     tmp_dir = "output/_bake_tmp"
