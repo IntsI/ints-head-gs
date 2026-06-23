@@ -229,9 +229,9 @@ function createBreath(renderer: unknown): ((t: number) => Record<string, number>
   const baseY = sm.position.y, baseZ = sm.position.z;
   const sx = sm.scale.x, sy = sm.scale.y, sz = sm.scale.z;
   const PERIOD = 4.6; // seconds per breath (~13/min, calm)
-  const BOB = 0.005;  // vertical chest rise (world units, slight)
-  const LEAN = 0.004; // back/forth micro-lean
-  const SWELL = 0.004; // uniform swell (chest filling), 0.4%
+  const BOB = 0.0025;  // vertical chest rise (world units) — dialed down, less body
+  const LEAN = 0.002;  // back/forth micro-lean — dialed down
+  const SWELL = 0.0022; // uniform swell (chest filling) — dialed down
   return (t: number) => {
     const s = Math.sin((t % PERIOD) / PERIOD * Math.PI * 2); // -1..1
     const inhale = (s + 1) / 2; // 0..1, peak at full inhale
@@ -241,9 +241,9 @@ function createBreath(renderer: unknown): ((t: number) => Record<string, number>
     sm.scale.set(sx * k, sy * k, sz * k);
     // nostrils flare + mouth eases on the inhale — slight
     return {
-      noseSneerLeft: inhale * 0.05,
-      noseSneerRight: inhale * 0.05,
-      jawOpen: inhale * 0.015,
+      noseSneerLeft: inhale * 0.10,
+      noseSneerRight: inhale * 0.10,
+      jawOpen: inhale * 0.03,
     };
   };
 }
