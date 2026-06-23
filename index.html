@@ -56,6 +56,15 @@
       #upStatus.ok { color: #86efac; }
       #upStatus.err { color: #fca5a5; }
       body.dragging #upload { border-color: #7dd3fc; background: rgba(20, 30, 45, 0.8); }
+      #variants { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+      #variants:empty { display: none; }
+      #variants .chip {
+        font: 11px ui-monospace, monospace; color: #cbd5e1;
+        background: rgba(30, 41, 59, 0.8); border: 1px solid #3a4658;
+        border-radius: 6px; padding: 2px 7px; cursor: pointer; pointer-events: auto;
+      }
+      #variants .chip:hover { border-color: #7dd3fc; }
+      #variants .chip.active { color: #0a0c10; background: #7dd3fc; border-color: #7dd3fc; }
     </style>
   </head>
   <body>
@@ -66,6 +75,7 @@
       <b>avatar</b> — drop a LAM OAC <code>.zip</code> anywhere, or
       <label for="file">browse</label><input id="file" type="file" accept=".zip" />
       <div id="upStatus">using bundled p2-1.zip</div>
+      <div id="variants"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

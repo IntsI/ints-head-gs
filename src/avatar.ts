@@ -131,3 +131,30 @@ export function resolveAvatarPath(defaultPath: string): string {
   const p = new URLSearchParams(location.search).get("avatar");
   return p && p.trim() ? p : defaultPath;
 }
+
+export interface CachedAvatar {
+  name: string;
+  url: string;
+}
+
+/**
+ * List avatars already in the SW cache (every dropped/loaded zip lands here).
+ * Powers the variant switcher: bake N shape variants, drop them all, flip.
+ */
+export async function listCachedAvatars(): Promise<CachedAvatar[]> {
+  if (!("caches" in window)) return [];
+  try {
+    const cache = await caches.open(CACHE);
+    const reqs = await cache.keys();
+    return reqs
+      .map((r) => new URL(r.url).pathname)
+      .filter((p) => p.startsWith("/__avatar__/") && p.endsWith(".zip"))
+      .map((p) => ({
+        url: p,
+        name: decodeURIComponent(p.replace("/__avatar__/", "").replace(/\.zip$/, "")),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}

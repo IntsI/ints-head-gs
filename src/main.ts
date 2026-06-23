@@ -3,7 +3,7 @@ import { createDriver } from "./driver";
 import { createCursorPose } from "./pose";
 import {
   REQUIRED_FILES, inspectAvatarZip, repackZip, registerAvatarSW, cacheUpload,
-  resolveAvatarPath,
+  resolveAvatarPath, listCachedAvatars,
 } from "./avatar";
 
 /**
@@ -189,12 +189,42 @@ async function main() {
 
   (window as unknown as { __gs: unknown }).__gs = { renderer, pose };
 
+  void buildVariantSwitcher();
+
   setInterval(() => {
     hud.textContent =
       `ints-head-gs · idle — alive (blink + micro motion)\n` +
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
       `${pose ? " · move cursor to look" : ""}`;
   }, 200);
+}
+
+// Variant switcher: list every avatar in the SW cache as a clickable chip so you
+// can flip between baked shape variants. [ / ] cycle. Selecting reloads via SW.
+async function buildVariantSwitcher() {
+  const el = document.getElementById("variants");
+  if (!el) return;
+  const list = await listCachedAvatars();
+  if (list.length === 0) return; // nothing cached yet — drop a few variants first
+  const curName = (AVATAR.split("/").pop() ?? AVATAR).replace(/\.zip$/, "");
+  el.innerHTML = "";
+  for (const a of list) {
+    const chip = document.createElement("span");
+    chip.className = "chip" + (a.name === curName ? " active" : "");
+    chip.textContent = a.name;
+    chip.title = `load ${a.name}`;
+    chip.addEventListener("click", () => {
+      location.search = `?avatar=${encodeURIComponent(a.url)}`;
+    });
+    el.appendChild(chip);
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "[" && e.key !== "]") return;
+    const i = list.findIndex((a) => a.name === curName);
+    const n = list.length;
+    const next = e.key === "]" ? (i + 1 + n) % n : (i - 1 + n) % n;
+    location.search = `?avatar=${encodeURIComponent(list[next].url)}`;
+  });
 }
 
 function makeFpsMeter() {
