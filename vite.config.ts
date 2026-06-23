@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
   };
 });
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-2.5-flash";
 const TTS_VOICE = "en-US-Neural2-D"; // natural US male; change languageCode/name to taste
 // emotions Gemini may pick — must be keys the driver's RECIPES support
 const EMOTIONS = [
@@ -58,6 +58,15 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
     req.on("error", reject);
   });
 }
+// Gemini flash can return transient 503 (UNAVAILABLE) / 429 under load — retry a few times.
+async function fetchRetry(url: string, init: RequestInit, tries = 3): Promise<Response> {
+  let r = await fetch(url, init);
+  for (let i = 1; i < tries && (r.status === 503 || r.status === 429); i++) {
+    await new Promise((res) => setTimeout(res, 400 * i + 300));
+    r = await fetch(url, init);
+  }
+  return r;
+}
 function xmlEscape(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
@@ -88,7 +97,7 @@ async function chat(req: IncomingMessage, res: ServerResponse, env: Record<strin
       },
     },
   };
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetchRetry(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) {
     const detail = await r.text();
     return sendJson(res, r.status, { error: `Gemini ${r.status}: ${detail.slice(0, 400)}` });
