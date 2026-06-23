@@ -16,7 +16,9 @@ you is the **FBX SDK** (Cell 4) — read that section first.
 
 | # | Does | Success looks like | If it fails |
 |---|------|--------------------|-------------|
-| 1 | GPU + CUDA check | T4 shown, `CUDA available: True` | No GPU → Change runtime type → T4; Restart & run all |
+| 1 | GPU + CUDA + **Python version** check | T4 shown, `CUDA available: True`, prints Python ver | No GPU → Change runtime type → T4; Restart & run all |
+| 1b | **only if Python ≠ 3.10** — condacolab installs a 3.10 base; **auto-restarts** | session "crashes" (expected) | don't re-run; just run 1c after restart |
+| 1c | **after the restart** — verify 3.10 + GPU | `check()` OK, Python 3.10.x | not 3.10 → see **FBX on Colab** |
 | 2 | clone LAM + install (cu121/cu118 auto) | `INSTALL DONE`, no red tracebacks | see **CUDA / build** below (~20–40 min, be patient) |
 | 3 | HF weights + assets | `WEIGHTS + ASSETS OK` | token optional (repos public); rate-limited → paste a token |
 | 4 | Blender + FBX SDK | `BLENDER OK` **and** `import fbx OK` | see **FBX on Colab** — the critical one |
@@ -51,23 +53,21 @@ as a `cp310` wheel**, so it installs **only on Python 3.10**. Colab is often
 
 Three ways forward, best first:
 
-1. **condacolab → Python 3.10 (makes the full pipeline work).** Run this FIRST,
-   before Cell 2; the kernel restarts once (expected), then continue:
-   ```python
-   !pip install -q condacolab
-   import condacolab; condacolab.install()   # kernel restarts here — this is normal
-   ```
-   After restart:
-   ```python
-   !conda create -y -n lam python=3.10 && echo "use this env for all later cells"
-   # then prefix python/pip calls with: conda run -n lam <cmd>
-   ```
-   Simpler in practice: `condacolab.install_from_url(...)` of a py3.10 miniconda,
-   or just rely on condacolab's base (it sets Python to a conda build). Verify
-   `sys.version` is 3.10 before installing the FBX wheel.
-   > Trade-off: condacolab makes the runtime non-linear (one restart) and you must
-   > install LAM's deps into the conda Python. Worth it only if you need the full
-   > on-Colab export.
+1. **condacolab → Python 3.10 — built into the notebook as Cells 1b/1c.** Cell 1
+   prints the Python version and tells you whether you need them. If Python ≠ 3.10:
+   - Run **Cell 1b** — it `pip install`s condacolab and calls
+     `condacolab.install_from_url(<Miniforge 23.3.1-1>)`, pinning a **Python-3.10.x**
+     conda *base* (so every later cell runs on 3.10 with **no `conda run` prefix**).
+     This **auto-restarts the runtime** — the cell looks like it crashed; that's
+     expected. **Do not re-run 1b.**
+   - After the restart, run **Cell 1c** (`condacolab.check()` + asserts Python 3.10
+     and GPU still attached), then continue at **Cell 2**.
+   - **Sequencing rule:** 1b must run *before* Cell 2 — it replaces Python, which
+     would wipe any pip installs done earlier. Cell 1 (GPU check) is side-effect
+     free, so the order Cell 1 → 1b → restart → 1c → Cell 2 is safe.
+   > Why pin the installer URL instead of `condacolab.install()`: the default
+   > Miniforge base Python drifts across releases; pinning `23.3.1-1` deterministically
+   > gives 3.10.x, so the cp310 FBX wheel installs and later cells need no changes.
 
 2. **Bake on LAM's ModelScope Space (no setup).** The hosted Space exports the OAC
    zip server-side: <https://www.modelscope.cn/studios/Damo_XR_Lab/LAM_Large_Avatar_Model>.
