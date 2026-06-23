@@ -210,6 +210,7 @@ async function main() {
   setTimeout(() => framing.apply(), 400); // re-assert after the renderer settles
 
   breathe = createBreath(renderer); // calm, slight breathing on the bust
+  disableViewerKeys(renderer); // stop the controls' WASD/arrow nav from eating typed keys
 
   (window as unknown as { __gs: unknown }).__gs = {
     renderer, pose, framing, driver, speech,
@@ -261,6 +262,21 @@ function createBreath(renderer: unknown): ((t: number) => Record<string, number>
       jawOpen: inhale * 0.03,
     };
   };
+}
+
+// The renderer's OrbitControls bind keyboard nav (WASD / arrows) on a DOM element
+// and swallow those keys globally — so a/w/s/d never reach our text input. We don't
+// use keyboard camera nav (framing is fixed), so detach those key listeners.
+function disableViewerKeys(renderer: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v: any = (renderer as any).viewer;
+  if (!v) return;
+  for (const k of Object.keys(v)) {
+    const o = v[k];
+    if (o && typeof o.stopListenToKeyEvents === "function" && o._domElementKeyEvents) {
+      try { o.stopListenToKeyEvents(); } catch { /* ignore */ }
+    }
+  }
 }
 
 // Speech test UI: type a phrase, "say" → speech.speak() (stub text→viseme timing).
