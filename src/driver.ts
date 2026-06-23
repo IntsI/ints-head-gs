@@ -116,7 +116,15 @@ export const RECIPES: Record<string, Arkit> = {
 export type ExpressionKey = keyof typeof RECIPES;
 
 export interface DriverHandle {
-  setExpression: (key: string) => void;
+  /**
+   * Set an emotion. It lands fast, HOLDS briefly, then auto-fades back to neutral
+   * over FADE seconds (a mood that settles to neutral-attentive between turns).
+   * opts overrides the hold/fade for this mood only. setExpression("neutral")
+   * rests immediately. A new setExpression mid-fade interrupts/replaces cleanly.
+   */
+  setExpression: (key: string, opts?: { hold?: number; fade?: number }) => void;
+  /** Tune the default auto-fade timing (seconds). */
+  setMoodTiming: (p: { hold?: number; fade?: number }) => void;
   /** Pull target for the renderer's getExpressionData. */
   getFrame: () => Record<string, number>;
   /** Advance easing + idle life. Call once per frame with dt seconds. */
@@ -145,7 +153,12 @@ export function createDriver(): DriverHandle {
   let idleOn = true;
   let t = 0; // internal clock
 
-  const TAU = 0.11; // expression ease — a touch slower reads more human
+  const TAU_IN = 0.11; // quick land when a mood is set — reads human, not snappy
+  // ---- emotion auto-fade -------------------------------------------------
+  let HOLD = 1.5;          // default seconds to hold a mood at full strength
+  let FADE = 3.0;          // default seconds to ease back to neutral after the hold
+  let moodAge = Infinity;  // seconds since the active mood was set; Infinity = resting
+  let curHold = HOLD, curFade = FADE; // effective timing for the active mood
 
   // ---- autonomous blink ----------------------------------------------------
   let timeToBlink = randRange(1.5, 4);
@@ -186,18 +199,46 @@ export function createDriver(): DriverHandle {
   const add = (n: string, v: number) => { out[n] = clamp01(out[n] + v); };
 
   return {
-    setExpression(key) {
+    setExpression(key, opts) {
       const recipe = RECIPES[key];
       if (!recipe) { console.warn(`[driver] unknown expression "${key}"`); return; }
       currentKey = key;
       for (const n of ARKIT_NAMES) tgt[n] = (recipe as Record<string, number>)[n] ?? 0;
+      // "neutral" rests immediately; any mood starts the hold→fade clock.
+      if (key === "neutral") {
+        moodAge = Infinity;
+      } else {
+        moodAge = 0;
+        curHold = opts?.hold ?? HOLD;
+        curFade = opts?.fade ?? FADE;
+      }
+    },
+
+    setMoodTiming(p) {
+      if (p.hold != null) HOLD = p.hold;
+      if (p.fade != null) FADE = p.fade;
     },
 
     setIdle(on) { idleOn = on; },
 
     update(dt) {
       t += dt;
-      const k = 1 - Math.exp(-dt / TAU);
+
+      // emotion auto-fade: hold the mood, then ease the target back to neutral.
+      let tau = TAU_IN;
+      if (moodAge !== Infinity) {
+        moodAge += dt;
+        if (moodAge >= curHold) {
+          for (const n of ARKIT_NAMES) tgt[n] = 0;   // fade target → neutral
+          tau = Math.max(curFade / 3, 0.05);          // slow settle (~3τ ≈ FADE)
+          if (moodAge >= curHold + curFade) {         // settled → rest
+            moodAge = Infinity;
+            currentKey = "neutral";
+          }
+        }
+      }
+
+      const k = 1 - Math.exp(-dt / tau);
       for (const n of ARKIT_NAMES) expr[n] += (tgt[n] - expr[n]) * k;
       driveSaccade(dt);
 

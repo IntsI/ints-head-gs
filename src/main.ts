@@ -217,7 +217,9 @@ async function main() {
     // speak("a phrase")  OR  speak([{viseme,startTime,duration},…]) for real timing
     speak: (input: string | Parameters<typeof speech.speak>[0]) => speech.speak(input),
     // emotion still composes while speaking:  __gs.setExpression("smug")
-    setExpression: (k: string) => driver.setExpression(k),
+    // moods auto-fade to neutral; tune with __gs.setMoodTiming({hold, fade})
+    setExpression: (k: string, o?: { hold?: number; fade?: number }) => driver.setExpression(k, o),
+    setMoodTiming: (p: { hold?: number; fade?: number }) => driver.setMoodTiming(p),
   };
 
   wireSpeechUI();
