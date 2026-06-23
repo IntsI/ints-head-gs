@@ -56,6 +56,10 @@ def main() -> None:
                          "'0:+1.5,3:-1.0'. Abstract FLAME PCA dims (not nose/jaw). "
                          "Same edit must be reused to reproduce a variant; bake several "
                          "to compare in the spike's variant switcher.")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the output name so variants don't collide, e.g. "
+                         "--tag s0plus -> <image>_s0plus.zip (distinct zip + inner folder "
+                         "+ switcher chip). Use a different tag per variant bake.")
     args = ap.parse_args()
 
     assert os.path.exists(args.image), f"image not found: {args.image}"
@@ -100,6 +104,10 @@ def main() -> None:
     motion_seqs_dir = os.path.join(clip_dir, "flame_param")
     assert os.path.isdir(motion_seqs_dir), f"missing flame_param dir: {motion_seqs_dir}"
     base_iid = os.path.basename(args.image).split(".")[0]
+    if args.tag.strip():
+        # keep names filesystem/URL-safe so variants get distinct zip + folder + chip
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in args.tag.strip())
+        base_iid = f"{base_iid}_{safe}"
     print(f"image={args.image}  iid={base_iid}  clip={clip_dir}  motion_seqs_dir={motion_seqs_dir}")
 
     # --- flame tracking on the input image (core_fn steps) -------------------
