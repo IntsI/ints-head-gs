@@ -187,7 +187,18 @@ async function main() {
     console.warn("[pose] head bone not found — cursor-follow disabled");
   }
 
-  (window as unknown as { __gs: unknown }).__gs = { renderer, pose };
+  // Persistent framing: the renderer defaults to a target ABOVE the head (y≈1.8
+  // vs head≈1.62) at distance 1.0 → head small + low. Re-aim at head level, closer,
+  // and persist the choice so every upload looks the same. Tune live with
+  // __gs.setFrame({ dist, dy }) — it saves to localStorage and reapplies on load.
+  const framing = createFraming(renderer);
+  framing.apply();
+  setTimeout(() => framing.apply(), 400); // re-assert after the renderer settles
+
+  (window as unknown as { __gs: unknown }).__gs = {
+    renderer, pose, framing,
+    setFrame: (p: { dist?: number; dy?: number }) => framing.setFrame(p),
+  };
 
   void buildVariantSwitcher();
 
@@ -197,6 +208,63 @@ async function main() {
       `fps ${fps.value().toFixed(0).padStart(3)} · ${fps.frameMs().toFixed(1)}ms` +
       `${pose ? " · move cursor to look" : ""}`;
   }, 200);
+}
+
+// Persistent, tunable camera framing. Aims the renderer's OrbitControls at the
+// head bone (not the default target ~0.18 above it) and pulls closer. Choice is
+// saved to localStorage so every avatar/upload frames identically.
+interface FrameCfg { dist: number; dy: number }
+function createFraming(renderer: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const v: any = (renderer as any).viewer;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cam: any = (renderer as any).getCamera?.();
+  // active OrbitControls = the one whose .object is the live camera
+  let ctrl: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (v) {
+    for (const k of Object.keys(v)) {
+      const o = v[k];
+      if (o && o.target && typeof o.update === "function" && o.object === cam) { ctrl = o; break; }
+    }
+    if (!ctrl) for (const k of Object.keys(v)) {
+      const o = v[k];
+      if (o && o.target && typeof o.update === "function") { ctrl = o; break; }
+    }
+  }
+  // head height (per-avatar; LAM rigs sit ~1.62). Fallback to current target.
+  let headY = ctrl ? ctrl.target.y : 1.62;
+  const scene = v?.scene || v?.threeScene || v?.splatMesh?.parent;
+  scene?.traverse?.((n: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if ((n.isBone || n.type === "Bone") && n.name === "head") {
+      n.updateWorldMatrix(true, false); headY = n.matrixWorld.elements[13];
+    }
+  });
+
+  const DEF: FrameCfg = { dist: 0.72, dy: 0.0 };
+  function load(): FrameCfg {
+    try { return { ...DEF, ...JSON.parse(localStorage.getItem("gsFrame") || "{}") }; }
+    catch { return { ...DEF }; }
+  }
+  let cfg = load();
+
+  function apply() {
+    if (!ctrl || !cam) return;
+    const ty = headY + cfg.dy;
+    ctrl.target.set(0, ty, 0);
+    cam.position.set(0, ty, cfg.dist);
+    cam.updateProjectionMatrix?.();
+    ctrl.update();
+  }
+  return {
+    apply,
+    setFrame(p: Partial<FrameCfg>) {
+      cfg = { ...cfg, ...p };
+      localStorage.setItem("gsFrame", JSON.stringify({ dist: cfg.dist, dy: cfg.dy }));
+      apply();
+      return cfg;
+    },
+    get cfg() { return cfg; },
+  };
 }
 
 // Variant switcher: list every avatar in the SW cache as a clickable chip so you
