@@ -65,12 +65,36 @@
       }
       #variants .chip:hover { border-color: #7dd3fc; }
       #variants .chip.active { color: #0a0c10; background: #7dd3fc; border-color: #7dd3fc; }
+
+      /* speech test bar */
+      #speech {
+        position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 6px; align-items: center; z-index: 10;
+        font: 12px ui-monospace, monospace;
+        background: rgba(8, 10, 14, 0.6); backdrop-filter: blur(6px);
+        border: 1px solid #3a4658; border-radius: 8px; padding: 6px 8px;
+      }
+      #phrase {
+        width: 360px; background: rgba(20, 30, 45, 0.9); color: #e2e8f0;
+        border: 1px solid #3a4658; border-radius: 6px; padding: 5px 8px;
+        font: 12px ui-monospace, monospace; outline: none;
+      }
+      #phrase:focus { border-color: #7dd3fc; }
+      #say {
+        background: #7dd3fc; color: #0a0c10; border: none; border-radius: 6px;
+        padding: 5px 12px; font: 600 12px ui-monospace, monospace; cursor: pointer;
+      }
+      #say:hover { background: #a5e0fb; }
     </style>
   </head>
   <body>
     <div id="stage"><div id="gs"></div></div>
     <div id="hud">booting…</div>
     <div id="boot">loading Gaussian-splat avatar…</div>
+    <div id="speech">
+      <input id="phrase" type="text" value="Hello, I am your digital head. Watch my mouth move." />
+      <button id="say">say</button>
+    </div>
     <div id="upload">
       <b>avatar</b> — drop a LAM OAC <code>.zip</code> anywhere, or
       <label for="file">browse</label><input id="file" type="file" accept=".zip" />

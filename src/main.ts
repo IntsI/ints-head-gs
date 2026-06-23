@@ -1,5 +1,6 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
 import { createDriver } from "./driver";
+import { createSpeech } from "./speech";
 import { createCursorPose } from "./pose";
 import {
   REQUIRED_FILES, inspectAvatarZip, repackZip, registerAvatarSW, cacheUpload,
@@ -30,6 +31,8 @@ let breathe: ((t: number) => Record<string, number>) | null = null;
 // Idle living base only: blink + micro brow/mouth drift + eye saccades + soft
 // breath, held at neutral (no expression keys, no speech clip). Feels alive.
 const driver = createDriver();
+// Speech/mouth driver — composites viseme articulation over the living base.
+const speech = createSpeech();
 
 const AVATAR = resolveAvatarPath(DEFAULT_AVATAR);
 
@@ -135,12 +138,17 @@ async function main() {
     lastPoll = now;
     driver.update(dt);
     pose?.update(dt);
+    speech.update(dt);
     fps.tick();
     const frame = driver.getFrame();
     // breathe() moves the bust (chest rise + slight lean) AND returns breath-synced
     // blendshape deltas (nostrils + a touch of mouth) to merge on top.
     const bd = breathe?.(now);
     if (bd) for (const k in bd) frame[k] = Math.min(1, (frame[k] ?? 0) + bd[k]);
+    // speech viseme bias dominates the MOUTH via max() — emotion still owns brow/eyes,
+    // breath/blink keep running underneath. Eases to 0 when not speaking (no effect).
+    const sp = speech.getFrame();
+    for (const k in sp) frame[k] = Math.min(1, Math.max(frame[k] ?? 0, sp[k]));
     return frame;
   }
 
@@ -204,10 +212,15 @@ async function main() {
   breathe = createBreath(renderer); // calm, slight breathing on the bust
 
   (window as unknown as { __gs: unknown }).__gs = {
-    renderer, pose, framing,
+    renderer, pose, framing, driver, speech,
     setFrame: (p: { dist?: number; dy?: number }) => framing.setFrame(p),
+    // speak("a phrase")  OR  speak([{viseme,startTime,duration},…]) for real timing
+    speak: (input: string | Parameters<typeof speech.speak>[0]) => speech.speak(input),
+    // emotion still composes while speaking:  __gs.setExpression("smug")
+    setExpression: (k: string) => driver.setExpression(k),
   };
 
+  wireSpeechUI();
   void buildVariantSwitcher();
 
   setInterval(() => {
@@ -246,6 +259,16 @@ function createBreath(renderer: unknown): ((t: number) => Record<string, number>
       jawOpen: inhale * 0.03,
     };
   };
+}
+
+// Speech test UI: type a phrase, "say" → speech.speak() (stub text→viseme timing).
+function wireSpeechUI() {
+  const input = document.getElementById("phrase") as HTMLInputElement | null;
+  const btn = document.getElementById("say");
+  if (!input || !btn) return;
+  const say = () => { if (input.value.trim()) speech.speak(input.value.trim()); };
+  btn.addEventListener("click", say);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") say(); });
 }
 
 // Persistent, tunable camera framing. Aims the renderer's OrbitControls at the
