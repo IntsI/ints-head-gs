@@ -1,7 +1,7 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
 import { createCursorPose } from "./pose";
 import {
-  REQUIRED_FILES, inspectAvatarZip, registerAvatarSW, cacheUpload,
+  REQUIRED_FILES, inspectAvatarZip, repackZip, registerAvatarSW, cacheUpload,
   resolveAvatarPath,
 } from "./avatar";
 
@@ -48,18 +48,23 @@ async function handleUpload(file: File) {
   }
   setStatus(`inspecting ${file.name}…`);
   try {
-    const buf = await file.arrayBuffer();
+    let buf = await file.arrayBuffer();
     const check = await inspectAvatarZip(buf);
     if (!check.ok || !check.folder) {
       setStatus(
         `✗ ${file.name} is not loadable\n` +
           `  folder: ${check.folder ?? "—"}\n` +
           `  missing: ${check.missing.join(", ") || "—"}\n` +
-          `  needs (in folder==zipname): ${REQUIRED_FILES.join(", ")}` +
+          `  needs: ${REQUIRED_FILES.join(", ")}` +
           (check.notes.length ? `\n  ${check.notes.join("\n  ")}` : ""),
         "err",
       );
       return;
+    }
+    // Auto-repack if the zip lacks the directory entry the renderer needs.
+    if (!check.hasDirEntry) {
+      setStatus(`✓ "${check.folder}" — adding directory entry…`, "ok");
+      buf = await repackZip(buf, check.folder);
     }
     setStatus(`✓ valid OAC avatar "${check.folder}" — loading…`, "ok");
     const url = await cacheUpload(buf, check.folder);
@@ -97,6 +102,30 @@ async function main() {
   if (AVATAR !== DEFAULT_AVATAR) {
     const name = AVATAR.split("/").pop() ?? AVATAR;
     setStatus(`loading ${name}…`);
+  }
+
+  // Auto-repack on the ?avatar= path too: a zip that lacks the directory entry
+  // would make the renderer throw 'file fold is not found'. We pre-fetch a
+  // not-yet-cached avatar, and if it's missing the entry, repack → cache →
+  // reload through the SW. The bundled default and already-cached uploads skip this.
+  if (AVATAR !== DEFAULT_AVATAR && !AVATAR.startsWith("/__avatar__/")) {
+    try {
+      const resp = await fetch(AVATAR);
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer();
+        const check = await inspectAvatarZip(buf);
+        if (check.ok && check.folder && !check.hasDirEntry) {
+          const name = AVATAR.split("/").pop() ?? AVATAR;
+          setStatus(`fixing ${name} (no directory entry)…`);
+          const fixed = await repackZip(buf, check.folder);
+          const url = await cacheUpload(fixed, check.folder);
+          location.search = `?avatar=${encodeURIComponent(url)}`;
+          return; // reload into the repacked, cached copy
+        }
+      }
+    } catch {
+      // network/parse hiccup — fall through and let the renderer try directly.
+    }
   }
 
   // Load the speak clip up front (the renderer polls getExpressionData per frame).

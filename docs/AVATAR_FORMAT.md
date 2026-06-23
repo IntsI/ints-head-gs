@@ -51,9 +51,13 @@ directory entry, NOT from the zip filename** — the URL only needs to end in
   zip looks like (file entries only). The `zip` CLI / `patoolib` (what LAM's own
   `app_lam.py` uses) DO write the directory entry — which is why a Gradio export
   loads but an early `colab_bake_oac.py` bake didn't.
-- **Fix any existing zip:** `python tools/repack_oac.py <bake>.zip` — adds the
-  directory entry and normalizes the folder to the zip's basename. The current
-  `colab_bake_oac.py` now writes the directory entry itself, so new bakes are fine.
+- **The spike auto-repacks on load.** Both the drag-drop and `?avatar=` paths
+  pre-check the zip and, if the directory entry is missing, repack it in-browser
+  (JSZip) before handing it to the renderer (`src/avatar.ts → repackZip`). So a
+  dir-entry-less zip "just works" in the spike — no manual step.
+- **Fix a zip on disk / outside the spike:** `python tools/repack_oac.py
+  <bake>.zip`. The current `colab_bake_oac.py` also writes the directory entry
+  itself, so new Colab bakes are fine.
 - Convention: keep the folder name == the zip basename (LAM does, and it keeps
   things obvious), but only the *presence* of the directory entry is enforced.
 - macOS `__MACOSX/` + `.DS_Store` junk is ignored.

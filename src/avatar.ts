@@ -27,10 +27,13 @@ export const REQUIRED_FILES = [
 const CACHE = "avatars";
 
 export interface ZipCheck {
+  /** True when the 4 required files are present (folder name aside). */
   ok: boolean;
   folder: string | null;
   present: string[];
   missing: string[];
+  /** Renderer needs an explicit directory entry; false → repack before load. */
+  hasDirEntry: boolean;
   notes: string[];
 }
 
@@ -53,7 +56,7 @@ export async function inspectAvatarZip(data: ArrayBuffer): Promise<ZipCheck> {
 
   if (folders.length === 0) {
     return { ok: false, folder: null, present: [], missing: [...REQUIRED_FILES],
-      notes: ["zip is empty or has no top-level folder"] };
+      hasDirEntry: false, notes: ["zip is empty or has no top-level folder"] };
   }
   if (folders.length > 1) {
     notes.push(`multiple top-level entries (${folders.join(", ")}); using "${folders[0]}"`);
@@ -69,18 +72,33 @@ export async function inspectAvatarZip(data: ArrayBuffer): Promise<ZipCheck> {
 
   // The renderer discovers the folder from an explicit DIRECTORY ENTRY (a member
   // whose name ends in "/"). A zip written by Python's zipfile has file entries
-  // only -> the renderer throws 'file fold is not found'. Catch it here.
+  // only -> the renderer throws 'file fold is not found'. We auto-repack on load.
   const hasDirEntry = Object.values(zip.files).some(
     (f) => f.dir && !f.name.startsWith("__MACOSX"),
   );
   if (!hasDirEntry) {
-    notes.push(
-      "no directory entry in zip — renderer would throw 'file fold is not found'. " +
-        "Repack with tools/repack_oac.py.",
-    );
+    notes.push("no directory entry — will auto-repack on load");
   }
 
-  return { ok: missing.length === 0 && hasDirEntry, folder, present, missing, notes };
+  // ok = the files are there; the missing dir entry is auto-fixed by repackZip.
+  return { ok: missing.length === 0, folder, present, missing, hasDirEntry, notes };
+}
+
+/**
+ * Rebuild a zip with an explicit top-level directory entry (what the renderer
+ * scans for). Fresh JSZip + `.folder()` guarantees the entry; the four required
+ * files are copied under it. Returns normalized bytes ready to cache/load.
+ */
+export async function repackZip(data: ArrayBuffer, folder: string): Promise<ArrayBuffer> {
+  const src = await JSZip.loadAsync(data);
+  const out = new JSZip();
+  const dir = out.folder(folder)!; // creates the directory entry
+  for (const f of REQUIRED_FILES) {
+    const member = src.file(`${folder}/${f}`);
+    if (!member) throw new Error(`repack: missing ${folder}/${f}`);
+    dir.file(f, await member.async("arraybuffer"));
+  }
+  return out.generateAsync({ type: "arraybuffer" });
 }
 
 /** Register the SW that serves cached uploads. No-op if unsupported. */

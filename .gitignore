@@ -4,3 +4,4 @@ dist
 .playwright-mcp
 __pycache__/
 *.pyc
+public/asset/avatars/ints.zip
