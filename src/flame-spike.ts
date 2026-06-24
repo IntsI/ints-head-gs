@@ -22,6 +22,13 @@ const jawSlider = document.getElementById("jaw") as HTMLInputElement;
 const phrase = document.getElementById("phrase") as HTMLInputElement;
 const sayBtn = document.getElementById("say")!;
 
+// The published renderer (every version) hardcodes useFlame="false" in a
+// module-internal charactorConfig and never merges caller options — so the FLAME
+// path is unreachable via the public API. For this DE-RISK spike only, a local
+// node_modules patch honors this window flag to force the FLAME branch. Not
+// committed; the OAC head never sets it, so it's unaffected. See TEETH_AND_SPEECH.md.
+(window as { __FORCE_FLAME?: boolean }).__FORCE_FLAME = true;
+
 const speech = createSpeech();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,13 +46,14 @@ function findFlameHost(renderer: Any): Any {
   return null;
 }
 
-/** Find the jaw bone (bundle comment: bones[2]; also try by name). */
+/**
+ * Find the jaw bone that ACTUALLY deforms. updateFlameBones() writes to
+ * viewer.skeleton.bones[2] — a skeleton built from bone_tree.json via
+ * createBonesFromJson, NOT the scene-graph skeleton. Reading the scene "jaw"
+ * bone shows 0 forever (it's a different object). Order: [root,neck,jaw,...].
+ */
 function findJawBone(renderer: Any): Any {
-  const v = renderer.viewer;
-  const scene = v?.scene || v?.threeScene || v?.splatMesh?.parent;
-  let byName: Any = null;
-  scene?.traverse?.((n: Any) => { if ((n.isBone || n.type === "Bone") && /jaw/i.test(n.name)) byName = byName || n; });
-  return byName;
+  return renderer.viewer?.skeleton?.bones?.[2] || null;
 }
 
 async function main() {
@@ -122,13 +130,18 @@ async function main() {
   }
   requestAnimationFrame(tick);
 
-  // --- programmatic make-or-break (no eyes): set jaw, read the bone back ---
+  // --- programmatic make-or-break (no eyes): drive jaw via the real slider
+  // path (tick() owns jaw_pose[0], so push through the slider it reads), then
+  // read the deforming bone (viewer.skeleton.bones[2]) back. ---
   async function proveLive() {
     const set = 0.4;
-    fp.jaw_pose[0] = [set, 0, 0];
-    for (const o of [host, renderer, renderer.viewer]) if (o && "frame" in o) o.frame = 0;
-    await sleep(200);
+    const prev = jawSlider.value;
+    jawSlider.value = String(set);
+    jawSlider.dispatchEvent(new Event("input"));
+    await sleep(250); // let several rAF ticks apply it through tick()→updateFlameBones
     const got = jawBone ? quatAngle(jawBone.quaternion) : NaN;
+    jawSlider.value = prev;
+    jawSlider.dispatchEvent(new Event("input"));
     const live = !isNaN(got) && Math.abs(got - set) < 0.08;
     const verdict = live
       ? `✅ UNKNOWN 1 = YES: jaw bone followed our live value (${got.toFixed(3)} ≈ ${set}). Live FLAME-drive viable.`

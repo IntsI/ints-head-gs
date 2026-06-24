@@ -129,15 +129,98 @@ playback.
 ### Three options to get teeth
 1. **Live FLAME-drive (teeth + live; the real prize, most work):** load the FLAME
    format `useFlame:true`, and instead of letting `flame_params` play, **overwrite
-   `renderer.flame_params['expr'/'jaw_pose'/'rotation']` per frame** with our
+   `viewer.flame_params['expr'/'jaw_pose'/'rotation']` per frame** with our
    viseme/emotion values (pin `totalFrames=1`, mutate index `[0]` each tick — the
    renderer re-reads it every frame). Needs a **viseme→FLAME mapping** (ARKit
-   blendshapes → FLAME `expr` PCA coeffs + `jaw_pose` bone). See the de-risk spike
-   (`flame-spike.html`) for the make-or-break test.
+   blendshapes → FLAME `expr` PCA coeffs + `jaw_pose` bone). **DE-RISKED — see
+   results below** (`flame-spike.html` / `src/flame-spike.ts`).
 2. **Playback FLAME (teeth, not live):** bake a `flame_params` clip per TTS reply
    and play it — teeth, but each reply is pre-rendered, not live.
 3. **Stay OAC + renderer-side teeth:** the teeth-rigged `template_file.fbx` Blender
    job above (live conversation, but needs the asset built).
+
+---
+
+## 3. DE-RISK SPIKE RESULTS (Option 1 — live FLAME-drive)
+
+Built `flame-spike.html` + `src/flame-spike.ts`, loaded `man.zip` (FLAME format)
+and drove `flame_params` live. Verified **programmatically in-browser** (Playwright
+reading the actual jaw-bone quaternion — no eyeballing needed).
+
+### ✅ UNKNOWN 1 — does the renderer read live-updated `flame_params`? **YES.**
+Pin `totalFrames=1` (the render loop then computes `frameIndex = 0` forever:
+`calcDelta = (now-start) % (totalFrames * 1/30)` → `floor(... / (1/30)) = 0`).
+Mutate `viewer.flame_params['jaw_pose'][0] = [jaw,0,0]` each tick. The loop runs
+`runMorphUpdate()` → `updateFlameBones()` **~70×/s** (measured), which re-reads
+`flame_params['jaw_pose'][frame=0]` and writes `viewer.skeleton.bones[2]`.
+
+Measured slider → `flame_params` → **jaw-bone quaternion**, exact tracking:
+
+| slider | flame_params.jaw_pose[0][0] | jaw bone (rad) |
+|-------:|----------------------------:|---------------:|
+| 0.10 | 0.10 | 0.10 |
+| 0.25 | 0.25 | 0.25 |
+| 0.40 | 0.40 | 0.40 |
+| 0.50 | 0.50 | 0.50 |
+| 0 | 0 | 0 (rest) |
+
+`__flame.proveLive()` returns
+`✅ jaw bone followed our live value (0.400 ≈ 0.4)`.
+
+### ✅ UNKNOWN 2 — viseme → FLAME jaw (minimal): **YES.**
+Firing `speak("hello there…")` drove the jaw bone through **22 distinct values
+(0.02–0.26 rad)** over the utterance — the existing `src/speech.ts` viseme
+`jawOpen` sequence maps straight onto `flame_params['jaw_pose']` (axis-angle, x ≈
+open). Jaw articulation on speech is proven. Visual **teeth** appear as the jaw
+opens (confirm in a browser — the splat render is too heavy to screenshot).
+
+### ⚠️ THE REAL BLOCKER — the published renderer can't enter the FLAME path
+`gaussian-splat-renderer-for-lam` **every version 0.0.1 → 0.0.9-alpha.2** hardcodes
+the FLAME switch off and gives the caller **no hook** to turn it on:
+```js
+var useFlame = "false";
+var charactorConfig = { …, useFlame };      // module-internal const
+// inside getInstance(container, assetPath, options):
+if (charactorConfig.useFlame) {              // reads the const, NOT options
+  renderer.useFlame = charactorConfig.useFlame == "false" ? false : true;  // → false
+}
+// options is NEVER merged into charactorConfig
+```
+So `getInstance(div, path, { useFlame:true })` is **ignored** — `useFlame` stays
+false and the renderer always runs the **OAC `loadModel`** path, which also fetches
+`pathName + "/animation.glb"`. `man.zip` has no `animation.glb` → `zip.file()`
+returns null → `new Blob([undefined])` → GLTFLoader parses the literal string
+`"undefined"` → `SyntaxError: "undefined" is not valid JSON`. (That error is the
+signature of this bug.) The alicdn demo runs a **custom/internal build** with the
+switch on.
+
+**To enter the FLAME path you must patch/fork the renderer.** The spike does it
+with a tiny local node_modules patch gated on a window flag (so the OAC head is
+untouched) — **NOT committed** (node_modules isn't tracked). To re-run the spike:
+
+```js
+// in BOTH:
+//   node_modules/gaussian-splat-renderer-for-lam/build/gaussian-splat-renderer-for-lam.module.js
+//   node_modules/.vite/deps/gaussian-splat-renderer-for-lam.js   (then `vite --force`)
+// right after the `if (charactorConfig.useFlame) { … }` block, add:
+if (typeof window !== "undefined" && window.__FORCE_FLAME) { renderer.useFlame = true; }
+```
+`flame-spike.ts` sets `window.__FORCE_FLAME = true` before `getInstance`. Also strip
+the macOS `__MACOSX/` + `.DS_Store` junk from `man.zip` and keep the explicit `man/`
+dir entry (else the folder-name autodetect / file lookup misfires).
+
+### Verdict
+Both technical unknowns for **Option 1 are GREEN**: the renderer honours live
+`flame_params`, and our viseme jaw stream drives it. The remaining work is
+**engineering, not research**:
+1. **Fork/patch the renderer** to expose `useFlame` (one line; or vendor a build) —
+   this is the gating dependency, not a Gaussian-splat problem.
+2. Build the full **viseme/emotion → FLAME `expr` (PCA) + `jaw_pose`** mapping
+   (jaw done; `expr` coeffs for lips/brow/emotion still to map — note `expr[0]`
+   came back length-0 on `man.zip`, so confirm the `expr` basis/length before
+   wiring blendshapes).
+3. Decide sourcing of FLAME-format avatars (the bake must emit the
+   `lbs_weight_20k.json` + FLAME `skin.glb` set, not the OAC set).
 
 ### The "Ignoring unknown cluster teeth" warning — benign, unrelated
 From `vhap/model/flame.py:981` (`process_face_clusters`): the FLAME **tracker**
