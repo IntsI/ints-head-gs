@@ -83,15 +83,20 @@
       const qs = new URLSearchParams(location.search);
       const $ = (id) => document.getElementById(id);
 
-      // Defaults = the three nansija shape-edit variants (+ optional un-edited baseline).
+      // Defaults = the three nansija shape-edit variants (+ un-edited baseline in d).
       const DEF = {
-        a: "/asset/avatars/nansija_long15.zip",
-        b: "/asset/avatars/nansija_long_narrow.zip",
-        c: "/asset/avatars/nansija_angular.zip",
-        d: "",  // set to /asset/avatars/nansija_arkit.zip (or ?d=) to show the baseline
+        a: "/asset/avatars/nansija_short10.zip",
+        b: "/asset/avatars/nansija_wide_short.zip",
+        c: "/asset/avatars/nansija_wide10.zip",
+        d: "/asset/avatars/nansija_arkit.zip",  // baseline (override/clear with ?d=)
       };
       // Known variant → shape-edit string, for the panel labels (param-driven still works).
+      // dim1 = face length (+long/-short), dim0 = width/size (+wide/-narrow); "10" = 1.0 mag.
       const EDITS = {
+        nansija_short10: "1:-1.0",
+        nansija_wide_short: "0:+1.0,1:-1.0",
+        nansija_wide10: "0:+1.0",
+        // older variants kept for ?a=/?b=/?c= reuse
         nansija_long15: "1:+1.5",
         nansija_long_narrow: "1:+1.8,0:-1.0",
         nansija_angular: "1:+2.0,0:-1.2,3:+0.8",
