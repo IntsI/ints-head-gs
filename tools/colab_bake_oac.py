@@ -67,6 +67,11 @@ def main() -> None:
                     help="suffix for the output name so variants don't collide, e.g. "
                          "--tag s0plus -> <image>_s0plus.zip (distinct zip + inner folder "
                          "+ switcher chip). Use a different tag per variant bake.")
+    ap.add_argument("--add-teeth", dest="add_teeth", action="store_true",
+                    help="EXPERIMENTAL: enable FLAME teeth (cfg.model.add_teeth=True). Predicted to "
+                         "desync the OAC export (no-teeth template_file.fbx is hardcoded to a fixed "
+                         "vertex count). This runs the full bake+export anyway so the real failure is "
+                         "visible — counts are printed and the error is surfaced, not hidden.")
     args = ap.parse_args()
 
     assert os.path.exists(args.image), f"image not found: {args.image}"
@@ -91,6 +96,13 @@ def main() -> None:
     # parse_configs reads --blender_path off sys.argv; hand it a clean argv.
     sys.argv = ["colab_bake_oac.py", "--blender_path", args.blender_path]
     cfg, _ = app_lam.parse_configs()
+
+    # EXPERIMENTAL teeth: override the config flag (configs/inference/lam-20k-8gpu.yaml:43
+    # add_teeth: false) -> flows to gs_renderer -> FlameHeadSubdivided. Changes the FLAME
+    # vertex/gaussian count, which the no-teeth OAC template_file.fbx isn't built for.
+    if args.add_teeth:
+        cfg.model.add_teeth = True
+        print("⚠️  --add-teeth: cfg.model.add_teeth=True (experimental; OAC export may desync).")
 
     print("building model + flame tracking…")
     lam = app_lam._build_model(cfg)
@@ -189,13 +201,47 @@ def main() -> None:
     )
     res["cano_gs_lst"][0].save_ply(os.path.join(oac_dir, "offset.ply"), rgb2sh=False, offset2xyz=True)
 
+    template_fbx = "./assets/sample_oac/template_file.fbx"
+
+    # Empirical teeth diagnostic: report the mesh vs template vertex counts (the
+    # predicted desync) BEFORE attempting the export — informational, not an abort.
+    if args.add_teeth:
+        try:
+            obj_verts = sum(1 for ln in open(saved_head_path) if ln.startswith("v "))
+            import re as _re
+            m = _re.search(r"Vertices:\s*\*(\d+)", open(template_fbx, encoding="utf-8", errors="ignore").read())
+            tmpl_floats = int(m.group(1)) if m else None
+            print("=" * 60)
+            print(f"[add-teeth] shaped mesh (nature.obj): {obj_verts} verts = {obj_verts*3} floats")
+            print(f"[add-teeth] template_file.fbx declares: Vertices: *{tmpl_floats}"
+                  + (" floats" if tmpl_floats else " (not found)"))
+            if tmpl_floats is not None:
+                match = (obj_verts * 3 == tmpl_floats)
+                print(f"[add-teeth] vertex counts {'MATCH' if match else 'MISMATCH'} "
+                      f"({obj_verts*3} vs {tmpl_floats}) — "
+                      + ("export should be fine" if match else "export likely to fail/desync below"))
+            print("=" * 60)
+        except Exception as e:  # diagnostic only — never block the real attempt
+            print(f"[add-teeth] count diagnostic skipped: {e}")
+
     print("generating skin.glb via Blender + FBX SDK (also writes vertex_order.json)…")
-    generate_glb(
-        input_mesh=Path(saved_head_path),
-        template_fbx=Path("./assets/sample_oac/template_file.fbx"),
-        output_glb=Path(os.path.join(oac_dir, "skin.glb")),
-        blender_exec=Path(cfg.blender_path),
-    )
+    try:
+        generate_glb(
+            input_mesh=Path(saved_head_path),
+            template_fbx=Path(template_fbx),
+            output_glb=Path(os.path.join(oac_dir, "skin.glb")),
+            blender_exec=Path(cfg.blender_path),
+        )
+    except Exception as e:
+        if args.add_teeth:
+            print("\n" + "!" * 60)
+            print("[add-teeth] OAC export FAILED at generate_glb (skin.glb step).")
+            print("[add-teeth] This is the predicted teeth desync: the shaped mesh now has")
+            print("[add-teeth] teeth verts, but template_file.fbx is hardcoded to the no-teeth")
+            print("[add-teeth] count (see Vertices: *N above). A teeth-aware template_file.fbx")
+            print("[add-teeth] would be needed. Full error follows:")
+            print("!" * 60)
+        raise  # surface the real failure — do not hide it
     shutil.copy("./assets/sample_oac/animation.glb", os.path.join(oac_dir, "animation.glb"))
     if os.path.exists(saved_head_path):
         os.remove(saved_head_path)
