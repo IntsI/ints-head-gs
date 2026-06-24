@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nansija shape-edit — 3-up synced compare</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #06080c; color: #cbd5e1;
+        font: 12px/1.5 ui-monospace, monospace; }
+      #app { display: flex; flex-direction: column; height: 100vh; }
+      #bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        padding: 8px 12px; background: #0b0f16; border-bottom: 1px solid #1e293b; }
+      #bar b { color: #e2e8f0; }
+      #bar .sp { flex: 1; }
+      input[type=text] { width: 168px; font: 11px ui-monospace, monospace;
+        background: #111827; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 7px; }
+      #phrase { width: 220px; }
+      button { font: 12px ui-monospace, monospace; font-weight: 600; cursor: pointer;
+        background: #7dd3fc; color: #06080c; border: none; border-radius: 6px; padding: 5px 12px; }
+      button.ghost { background: #334155; color: #e2e8f0; }
+      button.emo { background: #1e293b; color: #e2e8f0; border: 1px solid #3a4658; padding: 4px 9px; font-weight: 600; }
+      button.emo:hover { background: #334155; }
+      #drive { display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+        padding: 7px 12px; background: #0a0e15; border-bottom: 1px solid #1e293b; }
+      #drive .grp { color: #64748b; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+      #stage { flex: 1; display: grid; grid-auto-columns: 1fr; grid-auto-flow: column;
+        gap: 2px; background: #1e293b; min-height: 0; }
+      .pane { position: relative; background: #0a0c10; overflow: hidden; }
+      .pane iframe { width: 100%; height: 100%; border: 0; display: block; }
+      .tag { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 5; pointer-events: none;
+        background: rgba(8,10,14,0.74); border: 1px solid #334155; border-radius: 6px;
+        padding: 4px 9px; }
+      .tag .name { color: #fcd34d; font-weight: 700; }
+      .tag .edit { color: #93c5fd; }
+      .tag.baseline .name { color: #86efac; }
+      #status { font-size: 11px; }
+      .hint { color: #64748b; }
+      label { display: inline-flex; gap: 5px; align-items: center; }
+      #intensity { width: 96px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="bar">
+        <b>nansija shape-edit · 3-up</b>
+        <label>a <input id="a" type="text" /></label>
+        <label>b <input id="b" type="text" /></label>
+        <label>c <input id="c" type="text" /></label>
+        <label>d <input id="d" type="text" placeholder="(optional baseline)" /></label>
+        <button id="apply">apply</button>
+        <button id="resync" class="ghost" title="reload all panels and re-align the shared clock">resync</button>
+        <span class="sp"></span>
+        <span id="status" class="hint">booting…</span>
+      </div>
+
+      <div id="drive">
+        <span class="grp">drive all&nbsp;⟶</span>
+        <input id="phrase" type="text" value="hello there, watch the teeth" />
+        <button id="say">speak (all)</button>
+        <span class="grp">emotion</span>
+        <span id="emos"></span>
+        <button id="neutral" class="ghost">neutral</button>
+        <label class="grp">intensity <input id="intensity" type="range" min="0" max="1.5" step="0.05" value="1" /></label>
+        <span class="sp"></span>
+        <span class="hint">one signal → all panels, same shared clock · only proportions differ</span>
+      </div>
+
+      <div id="stage"></div>
+    </div>
+
+    <script type="module">
+      // ---- shared clock the iframe shim reads (see flame-spike.html ?seed shim) ----
+      // We keep a single monotonic clock and an "epoch" set at the moment every panel
+      // is loaded; each panel's performance.now() returns (clock - epoch), so blink /
+      // breath / gaze advance in lockstep — the ONLY visible difference is the shape.
+      const SEED = 777;                       // same seed → identical seeded RNG everywhere
+      window.__syncClock = performance.now();
+      window.__syncEpoch = 0;
+      window.__syncGo = false;
+      (function clock() { window.__syncClock = performance.now(); requestAnimationFrame(clock); })();
+
+      const qs = new URLSearchParams(location.search);
+      const $ = (id) => document.getElementById(id);
+
+      // Defaults = the three nansija shape-edit variants (+ optional un-edited baseline).
+      const DEF = {
+        a: "/asset/avatars/nansija_long15.zip",
+        b: "/asset/avatars/nansija_long_narrow.zip",
+        c: "/asset/avatars/nansija_angular.zip",
+        d: "",  // set to /asset/avatars/nansija_arkit.zip (or ?d=) to show the baseline
+      };
+      // Known variant → shape-edit string, for the panel labels (param-driven still works).
+      const EDITS = {
+        nansija_long15: "1:+1.5",
+        nansija_long_narrow: "1:+1.8,0:-1.0",
+        nansija_angular: "1:+2.0,0:-1.2,3:+0.8",
+        nansija_arkit: "baseline · no shape-edit",
+      };
+      const baseName = (p) => (p.split("/").pop() || "").replace(/\.zip$/i, "");
+      const editFor = (p) => EDITS[baseName(p)] || "(custom)";
+
+      for (const k of ["a", "b", "c", "d"]) $(k).value = qs.get(k) ?? DEF[k];
+
+      const flameSrc = (p) => "/flame-spike.html?avatar=" + encodeURIComponent(p.trim()) + "&seed=" + SEED;
+
+      let frames = [];   // live iframe elements (only the filled slots)
+
+      function build() {
+        const stage = $("stage");
+        stage.innerHTML = "";
+        frames = [];
+        const slots = ["a", "b", "c", "d"]
+          .map((k) => $(k).value.trim())
+          .filter(Boolean);
+        slots.forEach((p) => {
+          const pane = document.createElement("div");
+          pane.className = "pane";
+          const isBase = baseName(p) === "nansija_arkit";
+          const tag = document.createElement("span");
+          tag.className = "tag" + (isBase ? " baseline" : "");
+          tag.innerHTML = `<span class="name">${baseName(p)}</span> · <span class="edit">${editFor(p)}</span>`;
+          const f = document.createElement("iframe");
+          f.src = flameSrc(p);
+          pane.appendChild(tag);
+          pane.appendChild(f);
+          stage.appendChild(pane);
+          frames.push(f);
+        });
+        // persist to URL so variants can be swapped/shared
+        const u = new URL(location.href);
+        for (const k of ["a", "b", "c", "d"]) {
+          const v = $(k).value.trim();
+          v ? u.searchParams.set(k, v) : u.searchParams.delete(k);
+        }
+        history.replaceState(null, "", u);
+        armGo();
+      }
+
+      // Wait until every panel's rig is live (__flame set at end of its main()),
+      // THEN flip the shared clock so they all start the living base together.
+      function armGo() {
+        window.__syncGo = false;
+        $("status").textContent = "loading panels…";
+        const t0 = performance.now();
+        const iv = setInterval(() => {
+          const ready = frames.map((f) => {
+            try { return !!f.contentWindow.__flame; } catch (e) { return false; }
+          });
+          const n = ready.filter(Boolean).length;
+          $("status").textContent = `panels ready ${n}/${frames.length}…`;
+          if (n === frames.length) {
+            clearInterval(iv);
+            window.__syncEpoch = window.__syncClock;   // t=0 for every panel, same instant
+            window.__syncGo = true;
+            $("status").innerHTML = `▶ synced · ${frames.length} panels on one clock (seed ${SEED}) — only proportions differ`;
+          } else if (performance.now() - t0 > 30000) {
+            clearInterval(iv);
+            // start whatever is ready rather than hang forever
+            window.__syncEpoch = window.__syncClock;
+            window.__syncGo = true;
+            $("status").innerHTML = `⚠ started with ${n}/${frames.length} ready (a panel failed to load)`;
+          }
+        }, 120);
+      }
+
+      // ---- fan a single signal out to every panel, in the same parent task ----
+      const each = (fn) => frames.forEach((f) => {
+        try { const w = f.contentWindow; if (w && w.__flame) fn(w.__flame, w); } catch (e) {}
+      });
+
+      function speakAll() {
+        const text = $("phrase").value.trim();
+        if (!text) return;
+        each((fl) => { (fl.speak || fl.speech?.speak)?.call(fl.speech ?? fl, text); });
+      }
+      function emoteAll(name) {
+        const k = +$("intensity").value;
+        each((fl) => {
+          fl.setExpression?.(name);          // natural auto-fading emotion
+          fl.preset?.(name, k);              // + intensity-scaled morph bias (ARKit heads)
+        });
+      }
+      function neutralAll() {
+        each((fl) => { fl.setExpression?.("neutral"); fl.reset?.(); });
+      }
+
+      $("say").addEventListener("click", speakAll);
+      $("phrase").addEventListener("keydown", (e) => e.key === "Enter" && speakAll());
+      $("neutral").addEventListener("click", neutralAll);
+      $("apply").addEventListener("click", build);
+      $("resync").addEventListener("click", build);
+      for (const k of ["a", "b", "c", "d"])
+        $(k).addEventListener("keydown", (e) => e.key === "Enter" && build());
+
+      // Build the emotion chips once a panel is ready (vocabulary = RECIPES via __flame.presets()).
+      const FALLBACK_EMO = ["smile", "beam", "suspicious", "smug", "shock", "unimpressed", "angry", "sad", "wink"];
+      function buildEmos() {
+        let names = FALLBACK_EMO;
+        try {
+          const w = frames[0]?.contentWindow;
+          if (w?.__flame?.presets) names = w.__flame.presets().filter((n) => n !== "neutral");
+        } catch (e) {}
+        const host = $("emos");
+        host.innerHTML = "";
+        names.forEach((n) => {
+          const b = document.createElement("button");
+          b.className = "emo"; b.textContent = n;
+          b.addEventListener("click", () => emoteAll(n));
+          host.appendChild(b);
+        });
+      }
+      // (re)build chips shortly after panels come up
+      const emoIv = setInterval(() => {
+        try {
+          if (frames[0]?.contentWindow?.__flame?.presets) { buildEmos(); clearInterval(emoIv); }
+        } catch (e) {}
+      }, 300);
+      buildEmos();   // fallback chips immediately
+
+      build();
+    </script>
+  </body>
+</html>

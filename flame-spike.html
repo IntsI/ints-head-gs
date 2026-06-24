@@ -4,6 +4,49 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FLAME teeth + live-drive spike</title>
+    <!-- SYNC SHIM (inert unless ?seed= is present): lets compare3.html drive N
+         panels from ONE shared clock + seeded RNG, so the living base
+         (blink/breath/gaze) is byte-identical across panels and the ONLY visible
+         difference is facial proportions. A classic inline script runs BEFORE the
+         deferred module below, so the rig boots already shimmed. Normal use and
+         compare.html (no ?seed) are completely untouched. -->
+    <script>
+      (function () {
+        var sp = new URLSearchParams(location.search);
+        if (!sp.has("seed")) return; // default / compare.html: do nothing
+        var seed = (parseInt(sp.get("seed"), 10) || 1) >>> 0;
+        // mulberry32 — deterministic PRNG, reseeded at the shared "go" instant
+        function mk(s) {
+          return function () {
+            s |= 0; s = (s + 0x6d2b79f5) | 0;
+            var t = Math.imul(s ^ (s >>> 15), 1 | s);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+        }
+        var rng = mk(seed), started = false;
+        function P() { try { return window.parent !== window ? window.parent : null; } catch (e) { return null; } }
+        // Seeded RNG: blink/saccade intervals become deterministic. The load path
+        // draws a per-avatar number of randoms, so we RESEED once at "go" — after
+        // that only the (identical) idle consumes it, so panels stay in lockstep.
+        Math.random = function () {
+          var p = P();
+          if (p && p.__syncGo && !started) { started = true; rng = mk(seed); }
+          return rng();
+        };
+        // Shared clock: frozen until the parent flips __syncGo (all panels loaded),
+        // then every panel reads the SAME elapsed time → identical dt, breath, gaze.
+        var realNow = performance.now.bind(performance);
+        performance.now = function () {
+          var p = P();
+          try {
+            if (!p) return realNow();                   // standalone (no parent): normal time
+            if (!p.__syncGo) return 0;                  // in a panel, pre-go: idle frozen, no drift
+            return p.__syncClock - p.__syncEpoch;       // post-go: shared elapsed ms
+          } catch (e) { return realNow(); }
+        };
+      })();
+    </script>
     <style>
       :root { color-scheme: dark; }
       html, body { margin: 0; height: 100%; background: #0a0c10; }
