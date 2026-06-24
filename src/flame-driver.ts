@@ -45,6 +45,9 @@ export const EXPR_MAP: Record<string, Array<[number, number]>> = {
 export interface FlameRig {
   ok: boolean;
   exprLen: number;
+  /** True when skin.glb carries ARKit-named morphs (eyeBlinkLeft…) instead of
+   *  expr0..99 PCA — then expression incl. CLEAN BLINK drives by name directly. */
+  arkitMode: boolean;
   /** map FLAME component number (0..99) → bsWeight/expr array index */
   compIndex: number[];
   /** Pin to a single live frame and zero the channels we own. */
@@ -123,6 +126,14 @@ export function createFlameFraming(renderer: Any) {
   };
 }
 
+// In ARKit-morph mode these channels are driven by BONES (jaw_pose / eyes_pose),
+// so we must NOT also drive their ARKit morphs (would double the motion).
+const BONE_DRIVEN = new Set([
+  "jawOpen", "jawLeft", "jawRight", "jawForward",
+  "eyeLookInLeft", "eyeLookInRight", "eyeLookOutLeft", "eyeLookOutRight",
+  "eyeLookUpLeft", "eyeLookUpRight", "eyeLookDownLeft", "eyeLookDownRight",
+]);
+
 // ARKit (0..1) → radians/scale tuning for the bone channels.
 const JAW_RAD = 0.55;   // jawOpen=1 → ~0.55 rad (matches the spike's good range)
 const EYE_RAD = 0.30;   // full gaze dart → ~0.30 rad eye rotation
@@ -186,6 +197,8 @@ export function createFlameRig(renderer: Any): FlameRig {
 
   // morph component-number → array index (names are "exprNN", shuffled order)
   const compIndex: number[] = [];
+  const morphNames = new Set<string>();
+  let arkitMode = false;
   let exprLen = 0;
   // blink direction in FLAME-PCA space, solved per-head from geometry: the coeff
   // vector that CLOSES the eyelids while PENALIZING mouth motion (a single PCA
@@ -199,11 +212,15 @@ export function createFlameRig(renderer: Any): FlameRig {
     const dict: Record<string, number> | null = mesh?.morphTargetDictionary ?? null;
     if (dict) {
       exprLen = Object.keys(dict).length;
+      for (const k of Object.keys(dict)) morphNames.add(k);
       for (const [name, idx] of Object.entries(dict)) {
         const m = /^expr(\d+)$/.exec(name);
         if (m) compIndex[Number(m[1])] = idx as number;
       }
-      blinkDir.push(...solveBlinkDir(mesh, compIndex, exprLen));
+      // ARKit-morph head (the teeth + clean-blink bake) drives by name; the PCA
+      // head (expr0..99) only does the geometric blink solve (entangled, unused).
+      arkitMode = morphNames.has("eyeBlinkLeft") || morphNames.has("eyeBlinkRight");
+      if (!arkitMode) blinkDir.push(...solveBlinkDir(mesh, compIndex, exprLen));
     }
   }
 
@@ -224,7 +241,7 @@ export function createFlameRig(renderer: Any): FlameRig {
   }
 
   return {
-    ok, exprLen, compIndex,
+    ok, exprLen, arkitMode, compIndex,
     raw: { viewer, fp, sm },
 
     pinLive() {
@@ -281,12 +298,26 @@ export function createFlameRig(renderer: Any): FlameRig {
       // "crazy"). Whole-face EXPRESSIONS (smile/surprise/etc.) DON'T need that
       // isolation, so EXPR_MAP stays wired for them. See TEETH_AND_SPEECH.md §5.
       if (!exprPaused) {
-        const e = newExpr();
-        for (const ch in EXPR_MAP) {
-          const v = ark[ch]; if (!v) continue;
-          for (const [comp, w] of EXPR_MAP[ch]) e["expr" + comp] = (e["expr" + comp] ?? 0) + w * v;
+        if (arkitMode) {
+          // ARKit-morph head: drive expression morphs by NAME straight from the
+          // ARKit frame (driver emotion+idle incl. autonomous BLINK on
+          // eyeBlinkLeft/Right + speech visemes). Skip BONE_DRIVEN channels (jaw,
+          // gaze) — those ride jaw_pose/eyes_pose. Emit all names every frame
+          // (0 default) to clear stale weights.
+          const e: Record<string, number> = {};
+          for (const name of morphNames) {
+            e[name] = BONE_DRIVEN.has(name) ? 0 : clamp(ark[name] ?? 0, 0, 1);
+          }
+          fp.expr[0] = e;
+        } else {
+          // PCA head: no clean blink (entangled); only the optional EXPR_MAP.
+          const e = newExpr();
+          for (const ch in EXPR_MAP) {
+            const v = ark[ch]; if (!v) continue;
+            for (const [comp, w] of EXPR_MAP[ch]) e["expr" + comp] = (e["expr" + comp] ?? 0) + w * v;
+          }
+          fp.expr[0] = e;
         }
-        fp.expr[0] = e;
       }
     },
 

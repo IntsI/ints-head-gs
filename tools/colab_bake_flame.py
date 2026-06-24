@@ -55,6 +55,86 @@ from glob import glob
 from pathlib import Path
 
 
+# Standard ARKit-52 blendshape order (matches LAM_Audio2Expression's ARKitBlendShape
+# list / flame_arkit_bs column order). eyeBlinkLeft/Right are the dedicated lid
+# channels that give a CLEAN blink — the whole point of the --arkit bake.
+ARKIT_52 = [
+    "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight",
+    "cheekPuff", "cheekSquintLeft", "cheekSquintRight", "eyeBlinkLeft", "eyeBlinkRight",
+    "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
+    "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight",
+    "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight", "jawForward",
+    "jawLeft", "jawOpen", "jawRight", "mouthClose", "mouthDimpleLeft", "mouthDimpleRight",
+    "mouthFrownLeft", "mouthFrownRight", "mouthFunnel", "mouthLeft", "mouthLowerDownLeft",
+    "mouthLowerDownRight", "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight",
+    "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper",
+    "mouthSmileLeft", "mouthSmileRight", "mouthStretchLeft", "mouthStretchRight",
+    "mouthUpperUpLeft", "mouthUpperUpRight", "noseSneerLeft", "noseSneerRight", "tongueOut",
+]
+
+
+def bake_arkit_h5(flame_model, shape_param, fd: str) -> int:
+    """EXPERIMENTAL — bake the FLAME/teeth head with the 52 ARKit blendshapes
+    (named morphs incl. eyeBlinkLeft/Right) INSTEAD of the 100 expr PCA. Mirrors
+    FlameHeadSubdivided.save_h5_info but loops the ARKit basis and names each
+    bs/<arkitName>.obj, so the GLB (Blender names shape keys by filename) carries
+    ARKit morph targetNames → the renderer + our ARKit driver drive blink/emotion
+    BY NAME, with a dedicated (clean) blink. See tools/TEETH_AND_SPEECH.md §5.
+
+    Requires the model to be LAM's ARKit FLAME head (flame_arkit.py): its
+    shapedirs_up must carry the 52 ARKit dirs after the shape dirs. Fails loud if
+    the basis isn't ARKit-shaped. lbs_weight/bone_tree/nature are basis-independent.
+    """
+    import json
+    import torch
+    import trimesh
+    from lam.models.rendering.flame_model.flame import blend_shapes
+
+    os.makedirs(os.path.join(fd, "bs"), exist_ok=True)
+    m = flame_model
+    n_shape = m.n_shape_params
+    n_expr = m.shapedirs_up.shape[-1] - n_shape
+    assert n_expr == 52, (
+        f"--arkit needs the ARKit FLAME basis (52 dirs), got {n_expr}. The model is "
+        f"the PCA head — build LAM's flame_arkit.py FlameHeadSubdivided (expr_params=52, "
+        f"flame_arkit_bs.npy) for the renderer's flame_model. See TEETH_AND_SPEECH.md §5."
+    )
+    faces = m.faces_up.cpu().numpy()
+    B = shape_param.shape[0]
+    v_template = m.v_template_up.unsqueeze(0).expand(B, -1, -1)
+    v_shaped = v_template + blend_shapes(shape_param, m.shapedirs_up[:, :, :n_shape])
+
+    with open(os.path.join(fd, "lbs_weight_20k.json"), "w") as of:
+        json.dump(m.lbs_weights_up.cpu().numpy().tolist(), of)
+    v_ori = m.v_template.unsqueeze(0).expand(B, -1, -1) + blend_shapes(shape_param, m.shapedirs[:, :, :n_shape])
+    m.save_bone_tree(v_ori, os.path.join(fd, "bone_tree.json"))
+    trimesh.Trimesh(vertices=v_shaped.squeeze(0).cpu().numpy(), faces=faces).export(os.path.join(fd, "nature.obj"))
+
+    for i, name in enumerate(ARKIT_52):
+        e = torch.zeros((1, 52), device=v_shaped.device); e[:, i] = 1.0
+        v_e = v_shaped + blend_shapes(e, m.shapedirs_up[:, :, n_shape:])
+        trimesh.Trimesh(vertices=v_e.squeeze(0).cpu().numpy(), faces=faces).export(os.path.join(fd, "bs", f"{name}.obj"))
+    print(f"[arkit] baked 52 ARKit blendshape morphs (bs/<name>.obj), incl. eyeBlinkLeft/Right")
+    return 0
+
+
+def build_arkit_flame_model(cfg, add_teeth: bool):
+    """EXPERIMENTAL — build LAM's ARKit FLAME head (subdivided, teeth) for baking.
+    Mirrors how GS3DRenderer builds the PCA FlameHeadSubdivided, but from
+    flame_arkit.py with expr_params=52. The exact class/args may differ across LAM
+    revisions — adjust here if it raises. Returns the model on cuda."""
+    from lam.models.rendering.flame_model import flame_arkit
+    Cls = getattr(flame_arkit, "FlameHeadSubdivided", None) or getattr(flame_arkit, "FlameHead")
+    human_model_path = getattr(cfg.model, "human_model_path", "./model_zoo/human_model_files")
+    sub = getattr(cfg.model, "flame_subdivide_num", 1)
+    model = Cls(
+        300, 52, add_teeth=add_teeth, add_shoulder=False,
+        flame_model_path=f"{human_model_path}/flame_assets/flame/flame2023.pkl",
+        subdivide_num=sub,
+    )
+    return model.cuda().eval()
+
+
 def find_motion(motion_arg: str) -> str:
     """Pick a driving motion-sequence dir (provides flame shape + render params)."""
     if motion_arg and motion_arg != "auto":
@@ -98,6 +178,12 @@ def main() -> None:
     ap.add_argument("--motion", default="auto", help="driving clip under assets/sample_motion/export, or 'auto'")
     ap.add_argument("--flame-params", dest="flame_params", default="",
                     help="override path to flame_params.json (else taken from the --motion clip)")
+    ap.add_argument("--arkit", dest="arkit", action="store_true",
+                    help="EXPERIMENTAL: bake the teeth head with LAM's 52 ARKit blendshapes "
+                         "(named morphs incl. eyeBlinkLeft/Right) instead of the 100 expr PCA → "
+                         "teeth + a CLEAN dedicated blink, driven by name by our ARKit driver. "
+                         "Needs LAM's flame_arkit.py + flame_arkit_bs.npy; validate on Colab. "
+                         "See tools/TEETH_AND_SPEECH.md §5.")
     ap.add_argument("--no-teeth", dest="no_teeth", action="store_true",
                     help="bake WITHOUT teeth (default is WITH teeth — the whole point of this path). "
                          "Teeth flow cleanly here: no template_file.fbx, GLB exported from the model's FLAME mesh.")
@@ -221,8 +307,13 @@ def main() -> None:
         shutil.rmtree(h5_fd)  # avoid stale files from a previous bake
     os.makedirs(os.path.join(h5_fd, "bs"), exist_ok=True)
 
-    print("save_h5_info → lbs_weight_20k.json, bone_tree.json, nature.obj, bs/expr0..99.obj …")
-    lam.renderer.flame_model.save_h5_info(shape_param.unsqueeze(0).cuda(), fd=h5_fd)
+    if args.arkit:
+        print("⚠️  --arkit (EXPERIMENTAL): baking 52 ARKit blendshapes (clean blink) instead of PCA…")
+        arkit_model = build_arkit_flame_model(cfg, add_teeth)
+        bake_arkit_h5(arkit_model, shape_param.unsqueeze(0).cuda(), fd=h5_fd)
+    else:
+        print("save_h5_info → lbs_weight_20k.json, bone_tree.json, nature.obj, bs/expr0..99.obj …")
+        lam.renderer.flame_model.save_h5_info(shape_param.unsqueeze(0).cuda(), fd=h5_fd)
 
     print("save_ply → offset.ply …")
     res["cano_gs_lst"][0].save_ply(os.path.join(h5_fd, "offset.ply"), rgb2sh=False, offset2xyz=True)
@@ -230,8 +321,9 @@ def main() -> None:
     # teeth diagnostic: nature.obj vertex count (informational; this path doesn't desync)
     try:
         nverts = sum(1 for ln in open(os.path.join(h5_fd, "nature.obj")) if ln.startswith("v "))
-        nbs = len(glob(os.path.join(h5_fd, "bs", "expr*.obj")))
-        print(f"[flame] nature.obj verts={nverts}  expr blendshapes={nbs}  teeth={'ON' if add_teeth else 'off'}")
+        nbs = len(glob(os.path.join(h5_fd, "bs", "*.obj")))
+        basis = "ARKit-52" if args.arkit else "expr-PCA"
+        print(f"[flame] nature.obj verts={nverts}  blendshapes={nbs} ({basis})  teeth={'ON' if add_teeth else 'off'}")
     except Exception as e:
         print(f"[flame] count diagnostic skipped: {e}")
 

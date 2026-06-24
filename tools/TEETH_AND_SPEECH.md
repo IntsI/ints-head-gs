@@ -455,16 +455,34 @@ emits ARKit-52** — v2 drives by name directly: clean blink (dedicated channel)
 emotion + teeth, with **no PCA mapping at all** (the `EXPR_MAP`/solve problem
 vanishes; v2 becomes the same ARKit drive as v1, plus teeth).
 
-Concrete bake change (`colab_bake_flame.py`, an `--arkit` mode — NOT yet built/tested):
-1. Build LAM's renderer with the **ARKit FLAME head** (`flame_arkit.py`,
-   `expr_params=52`, needs the `flame_arkit_bs.npy` asset) instead of the PCA head.
-2. In the `save_h5_info` equivalent, loop the **52 ARKit blendshapes** (subdivided,
-   teeth-included topology) and export `bs/<arkitName>.obj` — so the Blender step
-   (`generateGLBWithBlender_v2.py`, names shape keys by filename) yields morph
-   `targetNames = the 52 ARKit names`.
-3. Same `lbs_weight_20k.json` / `bone_tree.json` / `offset.ply` / `vertex_order.json`.
-4. In the rig: drop the PCA path — set `bsWeight = driver.getFrame()` (ARKit object)
-   directly; add the procedural blink curve to `eyeBlinkLeft/Right` like A2E does.
+### ✅ BUILT (pending one Colab bake to validate)
+Both ends of the `--arkit` route are now implemented:
+
+**Rig (`flame-driver.ts`) — done & verified.** The rig **auto-detects** the morph
+basis: if `skin.glb` carries ARKit names (`eyeBlinkLeft`…) it enters `arkitMode` and
+drives expression **by name** straight from our ARKit `driver.ts` frame (autonomous
+blink → `eyeBlinkLeft/Right` morph = clean blink; emotion → `mouthSmile`… ; visemes
+→ mouth morphs), **excluding** jaw/gaze channels (those ride `jaw_pose`/`eyes_pose`
+bones, no double-drive). PCA heads fall back to the current behavior unchanged
+(verified no regression: `fisherman_flame.zip` → `arkitMode:false`, clean).
+
+**Bake (`colab_bake_flame.py --arkit`) — built, EXPERIMENTAL.** Bakes the teeth head
+with the 52 ARKit blendshapes (`bs/<arkitName>.obj`, named morphs) instead of the
+100 PCA `expr{i}`, via `build_arkit_flame_model` (LAM's `flame_arkit.py`,
+`expr_params=52`, `flame_arkit_bs.npy`, `add_teeth` on) + `bake_arkit_h5` (mirrors
+`save_h5_info` over the ARKit basis). `lbs_weight`/`bone_tree`/`offset.ply`/
+`vertex_order` are basis-independent. Fail-loud asserts if the basis isn't 52-dim.
+
+Colab command (after the normal notebook setup; upload `colab_bake_flame.py`):
+```bash
+!MPLBACKEND=Agg {RUN} python colab_bake_flame.py \
+    --image assets/sample_input/fisherman.jpg \
+    --blender_path {BLENDER} --motion Look_In_My_Eyes --arkit --tag arkit
+```
+→ `fisherman_arkit.zip`. Load it: `/flame-spike.html?avatar=…/fisherman_arkit.zip`
+(or `/compare.html?v2=…`). The rig auto-detects ARKit morphs → teeth + clean blink
++ emotion, driven by name. **Not yet run on Colab — the `flame_arkit` class name/args
+may need a tweak per LAM revision (the runner asserts loudly if so).**
 
 Caveat (honest): the shipped export tools don't have an out-of-the-box flag for
 "teeth + ARKit morphs in one GLB" — the OAC/ARKit export (`generateARKITGLBWithBlender.py`)

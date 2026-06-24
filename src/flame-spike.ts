@@ -84,9 +84,11 @@ async function main() {
     rig.writeFrame(ark);
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
-      `exprLen ${rig.exprLen} (FLAME-PCA, name-keyed) · expr ${Object.keys(EXPR_MAP).length ? "EXPR_MAP" : "neutral (no clean blink on this head)"}\n` +
+      (rig.arkitMode
+        ? `exprLen ${rig.exprLen} · ARKit-morph head → blink+emotion+visemes BY NAME ✓\n`
+        : `exprLen ${rig.exprLen} (FLAME-PCA) · no clean blink on this head (re-bake --arkit)\n`) +
       `emotion ${driver.current()} · jaw bone ${rig.jawBoneRad().toFixed(3)} rad\n` +
-      `living base: jaw+gaze+head-glances+neck+breath LIVE (bones)\n` +
+      `living base: ${rig.arkitMode ? "blink+emotion+" : ""}jaw+gaze+head-glances+neck+breath LIVE\n` +
       `calibrate: __flame.sweepComp(n,w) · prove: __flame.proveLive()`,
     );
     requestAnimationFrame(tick);
