@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "patch-renderer": "node tools/patch-renderer.mjs",
+    "postinstall": "node tools/patch-renderer.mjs"
   },
   "dependencies": {
     "gaussian-splat-renderer-for-lam": "0.0.9-alpha.1",
