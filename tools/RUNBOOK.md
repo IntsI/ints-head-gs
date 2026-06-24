@@ -59,8 +59,8 @@ installs an **explicit** set instead, all `{RUN}` into the env, **numpy pinned t
 - core deps: `opencv-python-headless gradio omegaconf einops roma moviepy imageio
   imageio-ffmpeg tyro lpips face-alignment loguru scikit-image kornia matplotlib
   trimesh jaxtyping plyfile tensorboard transformers==4.40.0 diffusers==0.31.0
-  accelerate safetensors` (huggingface_hub comes in transitively recent → the
-  `hf` CLI in Cell 3 works)
+  accelerate safetensors` (pulls huggingface_hub transitively; Cell 3 uses its
+  Python API, not the CLI)
 - `chumpy` + `pymcubes` with **`--no-build-isolation`** (they build against the
   env's numpy/Cython)
 - **ashawkey** `diff-gaussian-rasterization` (force; trap #1) — small CUDA build,
@@ -74,14 +74,25 @@ hang errors the cell. `INSTALL DONE` prints only after an in-env `IMPORTS_OK`
 check imports `torch, pytorch3d, diff_gaussian_rasterization, nvdiffrast.torch` +
 `ModelLAM` + `FlameTrackingSingleImage`.
 
+The `IMPORTS_OK` check runs with **`MPLBACKEND=Agg`** (same as the bake). LAM
+imports `matplotlib.pyplot` at import time; without `MPLBACKEND=Agg` the subprocess
+inherits Colab's notebook-only backend and **false-fails** with
+`ValueError: Key backend: 'module://matplotlib_inline.backend_inline' is not a
+valid value for backend` — even though the env is fine. Set it for that call.
+
 ### If Cell 2 fails
+- `…matplotlib_inline.backend_inline is not a valid value for backend` in the
+  IMPORTS_OK step → MPLBACKEND not set for that subprocess (fixed: the cell now
+  prepends `MPLBACKEND=Agg`). The environment is actually fine.
 - pytorch3d wheel issue → cu118 isn't supported by the prebuilt wheel (Colab is
   cu121; the cell asserts).
 - a source build hangs → it's timeout-guarded; bump `MAX_JOBS` if the VM has cores.
 - `nvcc: not found` → `!apt-get install -y cuda-toolkit-12-1`, re-run.
 
 ## Cell 3 — weights, assets, OAC template
-`hf download 3DAIGC/LAM-assets` + `3DAIGC/LAM-20K` (token optional; repos public),
+`snapshot_download("3DAIGC/LAM-assets")` + `"3DAIGC/LAM-20K"` via the
+huggingface_hub **Python API** (version-agnostic; avoids the `hf`/`huggingface-cli`
+CLI-name churn). Token optional; repos public.
 **plus** `sample_oac.tar` extracted into `assets/` — that's where
 `template_file.fbx` lives, and the GLB export fails without it. Asserts both the
 LAM-20K `model.safetensors` and `assets/sample_oac/template_file.fbx`.
