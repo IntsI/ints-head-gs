@@ -60,6 +60,15 @@ export interface FlameRig {
   jawBoneRad(): number;
   /** Cursor head target, normalized device coords -1..1 (eased into rotation). */
   setHeadTarget(nx: number, ny: number): void;
+  // --- manual control panel (ARKit mode): bias composed OVER the living base ---
+  /** The ARKit morph names this head carries (for building the panel). */
+  morphList(): string[];
+  /** Set a manual bias on an ARKit morph (0 clears it). Composes additively over
+   *  the autonomous frame (blink/gaze/speech), clamped 0..1. */
+  setMorph(name: string, value: number): void;
+  getMorph(name: string): number;
+  /** Clear all manual morph bias → back to the pure living base. */
+  resetMorphs(): void;
   // --- calibration helpers (run in console on a loaded FLAME head) ---
   zeroExpr(): void;
   /** Set a single FLAME component to weight w (zeros the rest). For sweeping. */
@@ -229,6 +238,7 @@ export function createFlameRig(renderer: Any): FlameRig {
   // head sway clock + eased cursor
   let cYaw = 0, cPitch = 0, tYaw = 0, tPitch = 0;
   let exprPaused = false; // calibration: hold expr so a sweep isn't wiped each tick
+  const manual: Record<string, number> = {}; // manual control-panel bias (ARKit mode)
 
   // Renderer keys bsWeight by morph NAME (for key in bsWeight → morphTargetDictionary[key])
   // and updateBoneMatrixTexture mutates in place, so we MUST emit ALL exprN keys
@@ -306,7 +316,9 @@ export function createFlameRig(renderer: Any): FlameRig {
           // (0 default) to clear stale weights.
           const e: Record<string, number> = {};
           for (const name of morphNames) {
-            e[name] = BONE_DRIVEN.has(name) ? 0 : clamp(ark[name] ?? 0, 0, 1);
+            // autonomous (blink/emotion/visemes) minus bone-driven, + manual bias
+            const auto = BONE_DRIVEN.has(name) ? 0 : (ark[name] ?? 0);
+            e[name] = clamp(auto + (manual[name] ?? 0), 0, 1);
           }
           fp.expr[0] = e;
         } else {
@@ -342,6 +354,11 @@ export function createFlameRig(renderer: Any): FlameRig {
     },
 
     setHeadTarget(nx, ny) { tYaw = clamp(nx, -1, 1); tPitch = clamp(ny, -1, 1); },
+
+    morphList() { return [...morphNames].sort(); },
+    setMorph(name, value) { if (value) manual[name] = value; else delete manual[name]; },
+    getMorph(name) { return manual[name] ?? 0; },
+    resetMorphs() { for (const k of Object.keys(manual)) delete manual[k]; },
 
     zeroExpr() { if (ok) fp.expr[0] = newExpr(); },
     setExprComp(comp, w) {
