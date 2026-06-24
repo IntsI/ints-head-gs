@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>v1 OAC vs v2 FLAME — head comparison</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #06080c; color: #cbd5e1;
+        font: 12px/1.5 ui-monospace, monospace; }
+      #app { display: flex; flex-direction: column; height: 100vh; }
+      #bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        padding: 8px 12px; background: #0b0f16; border-bottom: 1px solid #1e293b; }
+      #bar b { color: #e2e8f0; }
+      #bar .sp { flex: 1; }
+      input[type=text] { width: 220px; font: 12px ui-monospace, monospace;
+        background: #111827; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; }
+      button { font: 12px ui-monospace, monospace; font-weight: 600; cursor: pointer;
+        background: #7dd3fc; color: #06080c; border: none; border-radius: 6px; padding: 5px 12px; }
+      #stage { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #1e293b; min-height: 0; }
+      .pane { position: relative; background: #0a0c10; overflow: hidden; }
+      .pane iframe { width: 100%; height: 100%; border: 0; display: block; }
+      .tag { position: absolute; top: 8px; left: 8px; z-index: 5; pointer-events: none;
+        background: rgba(8,10,14,0.72); border: 1px solid #334155; border-radius: 6px;
+        padding: 4px 9px; font-weight: 600; }
+      .tag.v1 { color: #93c5fd; } .tag.v2 { color: #fcd34d; }
+      .hint { color: #64748b; }
+      label { display: inline-flex; gap: 5px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="bar">
+        <b>head A/B</b>
+        <label>v1 OAC <input id="v1" type="text" placeholder="avatar url / cached name (blank = default)" /></label>
+        <label>v2 FLAME <input id="v2" type="text" placeholder="flame avatar url (blank = man.zip)" /></label>
+        <button id="apply">apply</button>
+        <button id="swap" title="speak/emote both at once from the console">sync tip</button>
+        <span class="sp"></span>
+        <span class="hint">v1 = alive, no teeth · v2 = teeth + living base (bones live; blink/emote pending PCA calibration)</span>
+      </div>
+      <div id="stage">
+        <div class="pane"><span class="tag v1">v1 · OAC (alive, no teeth)</span><iframe id="f1"></iframe></div>
+        <div class="pane"><span class="tag v2">v2 · FLAME (teeth + living base)</span><iframe id="f2"></iframe></div>
+      </div>
+    </div>
+    <script type="module">
+      const qs = new URLSearchParams(location.search);
+      const v1El = document.getElementById("v1");
+      const v2El = document.getElementById("v2");
+      const f1 = document.getElementById("f1");
+      const f2 = document.getElementById("f2");
+      v1El.value = qs.get("v1") || "";
+      v2El.value = qs.get("v2") || "";
+
+      const src1 = (a) => "/" + (a.trim() ? "?avatar=" + encodeURIComponent(a.trim()) : "");
+      const src2 = (a) => "/flame-spike.html" + (a.trim() ? "?avatar=" + encodeURIComponent(a.trim()) : "");
+
+      function apply() {
+        f1.src = src1(v1El.value);
+        f2.src = src2(v2El.value);
+        const u = new URL(location.href);
+        v1El.value.trim() ? u.searchParams.set("v1", v1El.value.trim()) : u.searchParams.delete("v1");
+        v2El.value.trim() ? u.searchParams.set("v2", v2El.value.trim()) : u.searchParams.delete("v2");
+        history.replaceState(null, "", u);
+      }
+      document.getElementById("apply").addEventListener("click", apply);
+      v1El.addEventListener("keydown", (e) => e.key === "Enter" && apply());
+      v2El.addEventListener("keydown", (e) => e.key === "Enter" && apply());
+      document.getElementById("swap").addEventListener("click", () => {
+        alert(
+          "Drive both heads from the console:\n\n" +
+          "  f1.contentWindow.__gs.speak('hello')   // v1 OAC\n" +
+          "  f2.contentWindow.__flame.speak?.('hello') // v2 (use phrase box)\n\n" +
+          "  f1.contentWindow.__gs.setExpression('smug')\n" +
+          "  f2.contentWindow.__flame.setExpression('smug')\n\n" +
+          "(f1/f2 are the two iframes; each is its own renderer.)"
+        );
+      });
+      apply();
+    </script>
+  </body>
+</html>

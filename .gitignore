@@ -7,3 +7,7 @@ __pycache__/
 public/asset/avatars/ints*.zip
 .env
 public/asset/avatars/man.zip
+public/asset/avatars/fisherman*.zip
+# baked FLAME/OAC heads stay local (bakes are gitignored per project rule)
+public/asset/avatars/*_flame.zip
+public/asset/avatars/*_teeth.zip
