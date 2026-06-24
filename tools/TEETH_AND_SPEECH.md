@@ -426,7 +426,55 @@ raw clip frames render naturally) and drop it into `EXPR_MAP` (component-keyed) 
 **Net: teeth + speech-jaw + gaze + head + breath = a genuinely alive v2 (same
 ingredients as LAM's own demo, which also doesn't crisply blink). Controllable
 whole-face emotion is a reachable mapping task. A crisp isolated blink is the one
-thing this asset's FLAME basis can't do.**
+thing THIS asset's FLAME-PCA basis can't do — but a different bake CAN (below).**
+
+### ✅ THE ROUTE TO BOTH (teeth + clean blink): re-bake FLAME with the ARKit basis
+Researching LAM's source (project page → repos) settles it. LAM ships **two**
+expression bases and clean blink lives only in the ARKit one:
+
+- **FLAME-PCA** (`lam/models/rendering/flame_model/flame.py`): expr =
+  `shapedirs[:,:,300:300+100]` → the `expr0..99` morphs we have. Lid motion
+  entangled → no clean blink. (What our `fisherman_flame.zip` carries.)
+- **ARKit-on-FLAME** (`lam/models/rendering/flame_model/flame_arkit.py`): replaces
+  the PCA with **52 ARKit blendshapes baked onto FLAME topology** (`flame_arkit_bs.npy`,
+  asserts `expr_params==52`), with **`add_teeth=True` still default**. ARKit has a
+  **dedicated `eyeBlinkLeft`/`eyeBlinkRight`** channel.
+
+And LAM's blink is **procedural, not predicted**: `LAM_Audio2Expression`
+(`models/utils.py` `BLINK_PATTERNS` ≈ `[0.365,0.95,0.956,0.917,0.367,0.119,0.025]`,
+applied via `apply_random_eye_blinks*`) just writes that curve to ARKit indices 8/9
+at random intervals. OpenAvatarChat streams a 52-channel `arkit_face` bundle
+(`assets/arkit_face_channels.txt`) — that's why it blinks crisply. A real shipped
+OAC sample (`james.zip → arkitWithBSData/skin.glb`) has the 52 ARKit `targetNames`
+incl. `eyeBlinkLeft/Right`.
+
+**The fix: bake the FLAME/teeth head with the ARKit-52 basis instead of `expr0..99`.**
+Then the `skin.glb` carries ARKit-named morphs (`eyeBlinkLeft`…) AND teeth, and —
+because our renderer keys `bsWeight` by morph NAME and **our `driver.ts` already
+emits ARKit-52** — v2 drives by name directly: clean blink (dedicated channel) +
+emotion + teeth, with **no PCA mapping at all** (the `EXPR_MAP`/solve problem
+vanishes; v2 becomes the same ARKit drive as v1, plus teeth).
+
+Concrete bake change (`colab_bake_flame.py`, an `--arkit` mode — NOT yet built/tested):
+1. Build LAM's renderer with the **ARKit FLAME head** (`flame_arkit.py`,
+   `expr_params=52`, needs the `flame_arkit_bs.npy` asset) instead of the PCA head.
+2. In the `save_h5_info` equivalent, loop the **52 ARKit blendshapes** (subdivided,
+   teeth-included topology) and export `bs/<arkitName>.obj` — so the Blender step
+   (`generateGLBWithBlender_v2.py`, names shape keys by filename) yields morph
+   `targetNames = the 52 ARKit names`.
+3. Same `lbs_weight_20k.json` / `bone_tree.json` / `offset.ply` / `vertex_order.json`.
+4. In the rig: drop the PCA path — set `bsWeight = driver.getFrame()` (ARKit object)
+   directly; add the procedural blink curve to `eyeBlinkLeft/Right` like A2E does.
+
+Caveat (honest): the shipped export tools don't have an out-of-the-box flag for
+"teeth + ARKit morphs in one GLB" — the OAC/ARKit export (`generateARKITGLBWithBlender.py`)
+injects a fixed DAZ-style `template_file.fbx` (clean ARKit blink, teeth only as
+bones → not rendered), and the FLAME export (`generateGLBWithBlender_v2.py`) gives
+teeth but PCA. The `--arkit` recipe above splices the two (ARKit basis through the
+FLAME/teeth export path); it's grounded in LAM's code but needs a Colab bake to
+validate. Source pointers: `flame_arkit.py:108,124-133`; A2E `models/utils.py:139-144`
+(`BLINK_PATTERNS`), `engines/infer.py:255,283`; OAC
+`avatar_handler_lam_audio2expression.py` + `assets/arkit_face_channels.txt`.
 
 > Renderer access caveat (unchanged): published `gaussian-splat-renderer-for-lam`
 > hardcodes `useFlame=false` and never merges caller options, so the spike/compare
