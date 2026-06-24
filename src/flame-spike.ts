@@ -20,7 +20,7 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
 import { createDriver } from "./driver";
 import { createSpeech } from "./speech";
-import { createFlameRig, EXPR_MAP } from "./flame-driver";
+import { createFlameRig, createFlameFraming, EXPR_MAP } from "./flame-driver";
 import { resolveAvatarPath } from "./avatar";
 
 // Force the FLAME branch (gated node_modules patch) BEFORE getInstance.
@@ -60,6 +60,11 @@ async function main() {
   }
   boot?.classList.add("hidden");
   rig.pinLive();
+
+  // frame the head like v1 (the renderer's default camera misses the FLAME rig)
+  const framing = createFlameFraming(renderer);
+  framing.apply();
+  setTimeout(() => framing.apply(), 400); // re-assert after the renderer settles
 
   // --- live loop: same brain (driver+speech) → FLAME rig ---
   let last = performance.now() / 1000;
@@ -121,10 +126,12 @@ async function main() {
   }
 
   (window as Any).__flame = {
-    renderer, rig, driver, speech, AVATAR,
+    renderer, rig, driver, speech, framing, AVATAR,
     proveLive, sweepComp, inspectExpr,
     zeroExpr: () => rig.zeroExpr(),
     setExpression: (k: string, o?: Any) => driver.setExpression(k, o),
+    // tune framing live: __flame.setFrame({ distMul: 1.6, dy: 0.02 })
+    setFrame: (p: { distMul?: number; dy?: number }) => framing.setFrame(p),
   };
 }
 

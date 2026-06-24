@@ -66,6 +66,59 @@ export interface FlameRig {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
+/**
+ * Persistent FLAME framing — the OAC head has createFraming (main.ts); the FLAME
+ * path had none, so the renderer's default camera (target y≈1.8, z≈7) pointed at
+ * empty space far above the head (the FLAME rig sits at world Y≈0). This aims the
+ * OrbitControls at the head bbox centre (biased up toward the eyes) and pulls in
+ * to frame the head, so v2 sits the same size/position as v1. Tune live with
+ * __flame.setFrame({ distMul, dy }); persists to localStorage('gsFrameFlame').
+ */
+export function createFlameFraming(renderer: Any) {
+  const v: Any = renderer?.viewer;
+  const cam: Any = renderer?.getCamera?.() || v?.camera;
+  let ctrl: Any = null;
+  if (v) for (const k of Object.keys(v)) {
+    const o = v[k];
+    if (o && o.target && typeof o.update === "function") { if (!ctrl) ctrl = o; if (o.object === cam) { ctrl = o; break; } }
+  }
+  // head bbox (mesh is at origin, scale 1 → local ≈ world)
+  const root = v?.avatarMesh || v?.skinModel;
+  let mesh: Any = null;
+  root?.traverse?.((n: Any) => { if ((n.isMesh || n.isSkinnedMesh) && !mesh) mesh = n; });
+  let cx = 0, cy = 0, cz = 0, sy = 0.4;
+  if (mesh?.geometry) {
+    mesh.geometry.computeBoundingBox?.();
+    const bb = mesh.geometry.boundingBox;
+    cx = (bb.min.x + bb.max.x) / 2; cy = (bb.min.y + bb.max.y) / 2; cz = (bb.min.z + bb.max.z) / 2;
+    sy = Math.max(1e-3, bb.max.y - bb.min.y);
+  }
+  const DEF = { distMul: 1.45, dy: 0.0 };
+  function load() { try { return { ...DEF, ...JSON.parse(localStorage.getItem("gsFrameFlame") || "{}") }; } catch { return { ...DEF }; } }
+  let cfg = load();
+  function apply() {
+    if (!ctrl || !cam) return;
+    const fov = ((cam.fov || 50) * Math.PI) / 180; // three.js fov is vertical
+    const ty = cy + sy * 0.15 + cfg.dy;            // bias up toward eyes/face
+    const dist = (sy * cfg.distMul) / (2 * Math.tan(fov / 2));
+    ctrl.target.set(cx, ty, cz);
+    cam.position.set(cx, ty, cz + dist);
+    cam.near = Math.max(0.01, dist * 0.05); cam.far = dist * 100 + 10;
+    cam.updateProjectionMatrix?.();
+    ctrl.update();
+  }
+  return {
+    apply,
+    setFrame(p: { distMul?: number; dy?: number }) {
+      cfg = { ...cfg, ...p };
+      localStorage.setItem("gsFrameFlame", JSON.stringify({ distMul: cfg.distMul, dy: cfg.dy }));
+      apply();
+      return cfg;
+    },
+    get cfg() { return cfg; },
+  };
+}
+
 // ARKit (0..1) → radians/scale tuning for the bone channels.
 const JAW_RAD = 0.55;   // jawOpen=1 → ~0.55 rad (matches the spike's good range)
 const EYE_RAD = 0.30;   // full gaze dart → ~0.30 rad eye rotation

@@ -50,8 +50,10 @@
       const v2El = document.getElementById("v2");
       const f1 = document.getElementById("f1");
       const f2 = document.getElementById("f2");
+      // v2 defaults to the baked FLAME fisherman (local, gitignored); ?v2= overrides.
+      // Empty v2 falls back to the spike's own default (man.zip).
       v1El.value = qs.get("v1") || "";
-      v2El.value = qs.get("v2") || "";
+      v2El.value = qs.get("v2") ?? "/asset/avatars/fisherman_flame.zip";
 
       const src1 = (a) => "/" + (a.trim() ? "?avatar=" + encodeURIComponent(a.trim()) : "");
       const src2 = (a) => "/flame-spike.html" + (a.trim() ? "?avatar=" + encodeURIComponent(a.trim()) : "");
