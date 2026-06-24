@@ -40,7 +40,21 @@ So on **LAM's own render path** (the preview video / h5 viewer), flipping
 occluded in the input image → their colour is model-guessed (expect pale/!
 lip-tinted teeth, geometry solid). Worth a test render to judge quality.
 
-### ⚠️ But the OAC web export is blocked by a MISSING ASSET
+### ⚠️ CONFIRMED EMPIRICALLY: the OAC web export is blocked by a MISSING ASSET
+Tested with `colab_bake_oac.py --add-teeth` on a real bake. Tracking + LAM
+inference run fine and `offset.ply` writes — but **the OAC export fails at the
+`skin.glb` step** with exact numbers:
+
+```
+[add-teeth] shaped mesh (nature.obj): 20426 verts = 61278 floats
+[add-teeth] template_file.fbx declares: Vertices: *60054 floats   (= 20018 verts)
+            -> MISMATCH (61278 vs 60054); +408 teeth verts
+Blender FBX import dies: "NoneType is not iterable"
+```
+
+So teeth add **+408 verts** (20018 → 20426); the no-teeth template can't absorb
+them and Blender's import chokes. Confirmed, not predicted.
+
 The OAC `skin.glb` (what the WebRender deforms) is **not** built from the
 teeth-augmented mesh directly. `generate_glb` →
 `tools/generateARKITGLBWithBlender.py::update_flame_shape` injects the shaped
@@ -56,18 +70,23 @@ Enabling `add_teeth` makes the mesh (and `offset.ply` gaussians +
 no faces/skin weights, and the gaussian↔mesh mapping breaks. Result: a broken or
 teeth-less `skin.glb`, not a teeth head.
 
-**Verdict:** teeth in the **OAC/WebRender** path require a **teeth-matching
-`template_file.fbx`** (correct larger vertex count + faces + jaw/skull skinning
-weights for the teeth rows) — LAM does **not** ship one (`sample_oac.tar` only
-has the 60054 no-teeth template). This is an asset/rigging gap, **not** a
+**Verdict (confirmed):** teeth in the **OAC/WebRender** path are **blocked pending
+a teeth-rigged `template_file.fbx`**. LAM ships only the 60054-float (20018-vert)
+no-teeth template in `sample_oac.tar`. This is an asset/rigging gap, **not** a
 one-line flag. Options, if teeth are wanted in-product:
-1. Author a teeth-aware `template_file.fbx` (teeth rows rigged to jaw/skull) and
-   update the `*60054` header logic to be dynamic.
+1. **Blender job (the fix):** build a teeth-aware `template_file.fbx` — add the
+   **+408 teeth verts** (→ 20426 verts / 61278 floats) with faces, and **skin them
+   to the jaw bone (lower teeth) / skull (upper teeth)**, then update the
+   `Vertices: *60054` header logic in `update_flame_shape` to match (or make it
+   dynamic). Once that template exists, `--add-teeth` should produce a teeth head.
 2. Or build `skin.glb` from the teeth-augmented `v_template_up`/`faces_up`
    directly (skip the FBX template) and rig the procedural teeth to the jaw bone
-   in Blender — a real export-tool change.
-3. Or accept no teeth (current state: a gap) and rely on closed-ish mouth
-   visemes.
+   in Blender — a deeper export-tool change.
+3. Or accept no teeth (current state) and rely on closed-ish mouth visemes.
+
+The **`--add-teeth` flag stays in `colab_bake_oac.py`** for the day a teeth
+template exists — it already prints the counts and surfaces the failure, so it's
+the test harness for verifying a new template.
 
 ### The "Ignoring unknown cluster teeth" warning — benign, unrelated
 From `vhap/model/flame.py:981` (`process_face_clusters`): the FLAME **tracker**
