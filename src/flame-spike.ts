@@ -86,16 +86,14 @@ async function main() {
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
       `exprLen ${rig.exprLen} (FLAME-PCA) · EXPR_MAP ${Object.keys(EXPR_MAP).length ? "calibrated" : "EMPTY → no blink/emote yet"}\n` +
       `emotion ${driver.current()} · jaw bone ${rig.jawBoneRad().toFixed(3)} rad\n` +
-      `living base: jaw+gaze+head-sway+neck+breath LIVE · cursor to look\n` +
+      `living base: jaw+gaze+head-sway+neck+breath LIVE\n` +
       `calibrate: __flame.sweepComp(n,w) · prove: __flame.proveLive()`,
     );
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 
-  // cursor-follow head (FLAME rotation/neck bones)
-  window.addEventListener("pointermove", (e) =>
-    rig.setHeadTarget((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1));
+  // (cursor-follow head removed per request — head keeps its idle micro-sway only)
 
   sayBtn.addEventListener("click", () => { if (phrase.value.trim()) speech.speak(phrase.value.trim()); });
   phrase.addEventListener("keydown", (e) => { if (e.key === "Enter" && phrase.value.trim()) speech.speak(phrase.value.trim()); });
