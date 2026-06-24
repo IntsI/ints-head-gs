@@ -238,6 +238,13 @@ def main() -> None:
     ap.add_argument("--no-teeth", dest="no_teeth", action="store_true",
                     help="bake WITHOUT teeth (default is WITH teeth — the whole point of this path). "
                          "Teeth flow cleanly here: no template_file.fbx, GLB exported from the model's FLAME mesh.")
+    ap.add_argument("--shape-edit", dest="shape_edit", default="",
+                    help="warp FLAME shape dims as deltas on the fitted shape, e.g. "
+                         "'0:+1.5,3:-1.0'. Abstract FLAME PCA dims (not nose/jaw). "
+                         "Same edit must be reused to reproduce a variant; bake several "
+                         "to compare in the spike's variant switcher. Applied before "
+                         "inference AND save_h5_info/ARKit-morph export so gaussians and "
+                         "the FLAME mesh share one shape (else they desync).")
     ap.add_argument("--tag", default="",
                     help="suffix for the output name so variants don't collide, e.g. --tag teeth -> "
                          "<image>_teeth.zip (distinct zip + inner folder + switcher chip).")
@@ -326,6 +333,23 @@ def main() -> None:
         max_tgt_size=None, aspect_standard=aspect_standard, enlarge_ratio=[1.0, 1.0],
         render_tgt_size=cfg.source_size, multiply=14, need_mask=True, get_shape_param=True,
     )
+
+    # --- optional shape warp (applied to the fitted betas, BEFORE all consumers) ---
+    # Identical to the OAC runner. Must run before prepare_motion_seqs/infer AND before
+    # save_h5_info/write_arkit_morphs so the gaussians (offset.ply) and the FLAME mesh
+    # (nature.obj/skin.glb + the ARKit morph bases, all built from shape_param) get the
+    # same modified shape — otherwise they desync.
+    if args.shape_edit.strip():
+        edits = []
+        for tok in args.shape_edit.split(","):
+            if not tok.strip():
+                continue
+            dim_s, delta_s = tok.split(":")
+            dim, delta = int(dim_s), float(delta_s)
+            assert 0 <= dim < shape_param.shape[-1], f"shape dim {dim} out of range (0..{shape_param.shape[-1]-1})"
+            shape_param[dim] += delta
+            edits.append(f"dim{dim}{delta:+g}")
+        print(f"shape-edit applied to fitted betas: {', '.join(edits)}")
 
     src = image_path.split("/")[-3]
     driven = motion_seqs_dir.split("/")[-2]
