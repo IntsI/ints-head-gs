@@ -472,12 +472,18 @@ basis-independent) then **swaps the morphs**: builds LAM's ARKit FLAME head
 (`build_arkit_flame_model`) and writes 52 `bs/<arkitName>.obj` (`write_arkit_morphs`),
 so the GLB carries ARKit `targetNames`.
 
-Two real gotchas from the actual `flame_arkit.py` (fixed in the runner):
-- **The 52 comes from `flame_arkit_bs.npy`, NOT `expr_params`.** The parent ctor has
-  `assert expr_params != 52` (misleadingly worded) — so you must pass
-  **`expr_params=100`** and supply `flame_arkit_bs_path`. (Passing 52 is what tripped
-  the first attempt.) The ARKit model has the `_up` tensors but **no
-  `save_bone_tree`/`save_h5_info`**, hence reusing the PCA path for those.
+Real gotchas from the actual `flame_arkit.py` (fixed in the runner):
+- **Inverted assert vs the reshape.** `shapedirs = [300 shape | 52 ARKit]` (the 52
+  come from `flame_arkit_bs.npy`), so the subdivision reshape (`flame_arkit.py:717`,
+  `view(V, 3*(n_shape+n_expr))`) needs **`n_expr_params == 52`** → `3*352=1056`
+  (5143×1056 = 5,431,008). But line 108 ships `assert expr_params != 52` (message
+  says "must be equal to 52" — the condition is just backwards). So the class only
+  works with 52, which its own assert blocks. The runner **patches that one assert
+  in the LAM source** (`!= 52` → `== 52`, idempotent + module reload) and builds with
+  **`expr_params=52`**. (First attempt passed 52 → assert; second passed 100 → reshape
+  size mismatch; both are this bug.)
+- The ARKit model has the `_up` tensors but **no `save_bone_tree`/`save_h5_info`**,
+  hence reusing the PCA path for lbs/bone/nature/offset and only swapping morphs.
 - **`flame_arkit_bs.npy` is required but UNSHIPPED.** No LAM config references it and
   it's not in the repo (A2E "manually customized" the ARKit↔FLAME mapping). The
   runner auto-discovers it under `model_zoo/` (or `--arkit-bs <path>`) and **fails

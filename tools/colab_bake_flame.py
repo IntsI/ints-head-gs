@@ -139,19 +139,37 @@ def find_arkit_bs(human_model_path: str, override: str) -> str:
     return hits[0]
 
 
+def _patch_flame_arkit_assert():
+    """flame_arkit.py has an INVERTED assert: `assert expr_params != 52` (line ~108)
+    with message 'must be equal to 52'. But the shapedirs reshape (line ~717) needs
+    n_expr_params == 52 (shapedirs = 300 shape + 52 ARKit = 352). So the class only
+    works with expr_params == 52, which the assert blocks. We flip that one assert in
+    the source (idempotent) and reload the module. Returns the (reloaded) module."""
+    import importlib
+    from lam.models.rendering.flame_model import flame_arkit as fa
+    src = fa.__file__
+    txt = open(src, encoding="utf-8").read()
+    if "assert expr_params != 52" in txt:
+        txt = txt.replace("assert expr_params != 52", "assert expr_params == 52")
+        open(src, "w", encoding="utf-8").write(txt)
+        importlib.reload(fa)
+        print(f"[arkit] patched inverted assert in {src} (!= 52 → == 52) and reloaded")
+    return fa
+
+
 def build_arkit_flame_model(cfg, add_teeth: bool, arkit_bs_override: str):
     """EXPERIMENTAL — build LAM's ARKit FLAME head (subdivided, teeth) for baking
-    the 52 ARKit morphs. Mirrors GS3DRenderer's FlameHeadSubdivided call but from
-    flame_arkit.py. CRITICAL: pass expr_params != 52 (the 52 comes from
-    flame_arkit_bs.npy; the parent ctor asserts `expr_params != 52`). Returns cuda model."""
-    from lam.models.rendering.flame_model import flame_arkit
+    the 52 ARKit morphs. The class needs expr_params == 52 (the 52 ARKit dims come
+    from flame_arkit_bs.npy and the subdivision reshape uses n_shape+n_expr=352), but
+    ships an inverted assert that rejects 52 — we patch that first."""
+    flame_arkit = _patch_flame_arkit_assert()
     Cls = getattr(flame_arkit, "FlameHeadSubdivided")
     hmp = getattr(cfg.model, "human_model_path", "./model_zoo/human_parametric_models")
     fa = f"{hmp}/flame_assets/flame"
     sub = getattr(cfg.model, "flame_subdivide_num", 1)
     bs = find_arkit_bs(hmp, arkit_bs_override)
     model = Cls(
-        300, 100,                      # expr_params=100 (MUST be != 52; basis comes from the .npy)
+        300, 52,                       # expr_params=52 (ARKit; reshape needs 300+52=352)
         flame_model_path=f"{fa}/flame2023.pkl",
         flame_lmk_embedding_path=f"{fa}/landmark_embedding_with_eyes.npy",
         flame_template_mesh_path=f"{fa}/head_template_mesh.obj",
@@ -160,7 +178,7 @@ def build_arkit_flame_model(cfg, add_teeth: bool, arkit_bs_override: str):
         subdivide_num=sub,
         flame_arkit_bs_path=bs,
     )
-    print(f"[arkit] built ARKit FLAME head (expr_params=100, teeth={add_teeth}, subdiv={sub})")
+    print(f"[arkit] built ARKit FLAME head (expr_params=52, teeth={add_teeth}, subdiv={sub})")
     return model.cuda().eval()
 
 
