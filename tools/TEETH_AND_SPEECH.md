@@ -370,8 +370,8 @@ overwrites `flame_params[…][0]`:
 | eye gaze / saccades | `eyes_pose` bones (L=[0..2], R=[3..5]) | ✅ live |
 | head glances (autonomous wander) + neck | `rotation`/`neck_pose` bones | ✅ live |
 | breath (chest rise/lean/swell) | splatMesh transform | ✅ live |
-| **blink** | `expr` (FLAME-PCA, name-keyed) | ✅ live |
-| brow / mouth-shape / full emotion face | `expr` (FLAME-PCA) | ⏳ reachable (path works; needs per-channel directions) |
+| whole-face emotion (smile/surprise/…) | `expr` (FLAME-PCA, name-keyed) | ⏳ reachable (path works; needs directions) |
+| **isolated blink** | `expr` (FLAME-PCA) | ❌ not representable on this head (see below) |
 
 ### ✅ RESOLVED: expr/morph deform works — it was a NAME-KEYING bug in our rig
 **Earlier this section said the morph path was "renderer-blocked / inert." That was
@@ -397,23 +397,36 @@ fisherman both close their eyes; live autonomous blink fires through the loop. N
 fork, no version bump, no re-bake — the renderer (`0.0.9-alpha.1`) and the bake
 were correct all along.
 
-### Blink (live) — derived per-head from geometry
-FLAME has no eyelid bone, so blink is an `expr` direction. The rig computes it at
-load: scan each morph for **downward motion in the eyelid region**, take that as the
-blink direction, normalize, scale (`BLINK_GAIN≈11` → full closure at ARKit blink=1).
-`writeFrame` adds `blinkDir × max(eyeBlinkLeft,eyeBlinkRight)` from `driver.ts`'s
-autonomous blink. Self-calibrating for any FLAME head. Preview: `__flame.setBlink(1)`.
+### ❌ Isolated BLINK is NOT representable on this head (rigorously established)
+FLAME has no eyelid bone, so blink must be an `expr` direction. We tried hard and
+measured objectively (upper-lid vs lower-lid gap, evaluating the real morph combo):
+- **Single PCA components:** none close the eyes cleanly — the best eye-movers also
+  drag the mouth (localization ≤ 0.55).
+- **Mouth/brow/cheek-penalized least-squares** (solve for lid-close while forbidding
+  the rest): **~0–1 % lid closure** — when you forbid the face from moving, the basis
+  has no eyelid-closing direction left.
+- **Unconstrained eye-close direction:** *does* close the lids, but pulls brow down +
+  cheek up + mouth → a **grimace** (this is the "crazy" frame). 
+- **The clip's own captured blinks:** the deepest blink frame moves the upper lid only
+  **~5 %** of the eye gap — negligible. LAM heads barely blink.
 
-### Brow / mouth-shape / full emotion — now reachable the same way
-The expr path works, so the remaining ARKit→FLAME-PCA channels (brow up/down, smile,
-frown, pucker…) just need their **directions** — either derived geometrically like
-blink (region-scored morph motion) or pulled from the clip — then dropped into
-`EXPR_MAP` (component-keyed) in `flame-driver.ts`; `writeFrame` already composes it
-from the live `driver.ts` output. Calibration tools: `__flame.sweepComp(n,w)` /
-`resumeExpr()` / `inspectExpr()`.
+**Conclusion:** on this FLAME expression PCA, eyelid closure is **entangled** with
+brow/cheek/mouth and cannot be isolated — a clean, visible blink is not achievable
+without facial distortion. So we **do not drive blink** (it's off; the face stays
+clean). `solveBlinkDir`/`setBlink` remain for experimentation only.
 
-**So "both teeth AND blink/emotion in one head" is achieved for blink, and is a
-small mapping task (not a fork) for the rest.**
+### Whole-face emotion (smile/surprise/…) — reachable, unlike blink
+Emotions are *meant* to move multiple regions together, so they DON'T need the
+isolation blink does. The name-keying fix makes them drivable: derive each
+expression's direction (geometric region-scoring, or pull an expressive clip frame —
+raw clip frames render naturally) and drop it into `EXPR_MAP` (component-keyed) in
+`flame-driver.ts`; `writeFrame` composes it from the live `driver.ts` output. Tools:
+`__flame.sweepComp(n,w)` / `resumeExpr()` / `inspectExpr()`.
+
+**Net: teeth + speech-jaw + gaze + head + breath = a genuinely alive v2 (same
+ingredients as LAM's own demo, which also doesn't crisply blink). Controllable
+whole-face emotion is a reachable mapping task. A crisp isolated blink is the one
+thing this asset's FLAME basis can't do.**
 
 > Renderer access caveat (unchanged): published `gaussian-splat-renderer-for-lam`
 > hardcodes `useFlame=false` and never merges caller options, so the spike/compare

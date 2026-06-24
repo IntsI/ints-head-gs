@@ -129,6 +129,55 @@ const EYE_RAD = 0.30;   // full gaze dart → ~0.30 rad eye rotation
 const HEAD_YAW = 0.42;  // cursor head yaw range (rad), split head/neck
 const HEAD_PITCH = 0.26;
 
+/**
+ * Solve the clean blink direction in FLAME-PCA space from geometry alone:
+ * find coeffs that pull the eyelids together (upper verts down, lower up) while
+ * a least-squares penalty keeps the mouth region still — because individual PCA
+ * components, and the clip's own blink frames, drag the mouth into a grimace.
+ * Returns blinkDir[comp] scaled so blink amount 1 → ~full closure.
+ */
+function solveBlinkDir(mesh: Any, compIndex: number[], D: number): number[] {
+  const base = mesh.geometry.attributes.position;
+  const morphs = mesh.geometry.morphAttributes.position;
+  const N = base.count;
+  const isEye = (x: number, y: number, z: number) =>
+    y > 0.012 && y < 0.05 && Math.abs(x) > 0.012 && Math.abs(x) < 0.075 && z > 0.0;
+  const isMouth = (x: number, y: number, z: number) =>
+    y > -0.07 && y < 0.0 && Math.abs(x) < 0.055 && z > 0.015;
+  const LAMBDA = 8, MU = 0.3, dClose = 0.010, GAIN = 10;
+
+  const A: Float64Array[] = Array.from({ length: D }, () => new Float64Array(D));
+  const b = new Float64Array(D);
+  for (let i = 0; i < N; i++) {
+    const x = base.getX(i), y = base.getY(i), z = base.getZ(i);
+    if (isEye(x, y, z)) {
+      const t = y >= 0.033 ? -dClose : dClose; // upper lid down, lower lid up → converge
+      const r = new Float64Array(D);
+      for (let c = 0; c < D; c++) r[c] = morphs[compIndex[c]].getY(i);
+      for (let p = 0; p < D; p++) { b[p] += r[p] * t; const rp = r[p], Ap = A[p]; for (let q = 0; q < D; q++) Ap[q] += rp * r[q]; }
+    }
+    if (isMouth(x, y, z)) { // penalize mouth motion on all axes (target 0)
+      const rx = new Float64Array(D), ry = new Float64Array(D), rz = new Float64Array(D);
+      for (let c = 0; c < D; c++) { const d = morphs[compIndex[c]]; rx[c] = d.getX(i); ry[c] = d.getY(i); rz[c] = d.getZ(i); }
+      for (let p = 0; p < D; p++) { const Ap = A[p], xp = rx[p], yp = ry[p], zp = rz[p]; for (let q = 0; q < D; q++) Ap[q] += LAMBDA * (xp * rx[q] + yp * ry[q] + zp * rz[q]); }
+    }
+  }
+  for (let p = 0; p < D; p++) A[p][p] += MU;
+
+  // Gaussian elimination on [A | b]
+  const M: number[][] = A.map((row, i) => { const r = Array.from(row); r.push(b[i]); return r; });
+  for (let col = 0; col < D; col++) {
+    let piv = col;
+    for (let r = col + 1; r < D; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const pv = M[col][col] || 1e-9;
+    for (let r = 0; r < D; r++) { if (r === col) continue; const fac = M[r][col] / pv; for (let k = col; k <= D; k++) M[r][k] -= fac * M[col][k]; }
+  }
+  const dir = new Array<number>(D);
+  for (let i = 0; i < D; i++) dir[i] = (M[i][D] / (M[i][i] || 1e-9)) * GAIN;
+  return dir;
+}
+
 export function createFlameRig(renderer: Any): FlameRig {
   const viewer: Any = renderer?.viewer;
   const fp: Any = viewer?.flame_params;
@@ -138,9 +187,10 @@ export function createFlameRig(renderer: Any): FlameRig {
   // morph component-number → array index (names are "exprNN", shuffled order)
   const compIndex: number[] = [];
   let exprLen = 0;
-  // blink direction in FLAME-PCA space, derived per-head from geometry (which
-  // components move the eyelid region DOWN). blinkDir[comp] already scaled so
-  // ARKit blink=1 → full closure.
+  // blink direction in FLAME-PCA space, solved per-head from geometry: the coeff
+  // vector that CLOSES the eyelids while PENALIZING mouth motion (a single PCA
+  // component drags the mouth into a grimace — the clean blink is a mouth-
+  // orthogonal combination). blinkDir[comp] scaled so ARKit blink=1 → full closure.
   const blinkDir: number[] = [];
   if (ok) {
     const root = viewer.avatarMesh || viewer.skinModel;
@@ -153,22 +203,7 @@ export function createFlameRig(renderer: Any): FlameRig {
         const m = /^expr(\d+)$/.exec(name);
         if (m) compIndex[Number(m[1])] = idx as number;
       }
-      // --- derive blink direction from eyelid-region downward morph motion ---
-      const base = mesh.geometry.attributes.position;
-      const morphs = mesh.geometry.morphAttributes.position;
-      const N = base.count;
-      const inEye = (x: number, y: number, z: number) =>
-        y > 0.01 && y < 0.055 && Math.abs(x) > 0.012 && Math.abs(x) < 0.08 && z > 0.0;
-      const score: number[] = new Array(exprLen).fill(0);
-      for (let c = 0; c < exprLen; c++) {
-        const d = morphs[compIndex[c]]; if (!d) continue;
-        let s = 0;
-        for (let i = 0; i < N; i++) if (inEye(base.getX(i), base.getY(i), base.getZ(i))) s += -d.getY(i);
-        score[c] = s;
-      }
-      const norm = Math.hypot(...score) || 1;
-      const BLINK_GAIN = 11; // normalized eye-close dir × 11 ≈ full closure (measured)
-      for (let c = 0; c < exprLen; c++) blinkDir[c] = (score[c] / norm) * BLINK_GAIN;
+      blinkDir.push(...solveBlinkDir(mesh, compIndex, exprLen));
     }
   }
 
@@ -239,12 +274,14 @@ export function createFlameRig(renderer: Any): FlameRig {
       fp.neck_pose[0] = [pitch * 0.4, yaw * 0.4 + swayY * 0.5, 0];
 
       // --- EXPR (FLAME-PCA), NAME-KEYED object (renderer keys bsWeight by name) ---
+      // NOTE: a clean isolated BLINK is NOT representable in this head's FLAME expr
+      // PCA — eyelid motion is entangled with brow/cheek/mouth (penalize them → ~0
+      // lid closure; allow them → facial grimace), and the captured clip's own
+      // blinks move the lid only ~5%. So we do NOT drive blink here (it looked
+      // "crazy"). Whole-face EXPRESSIONS (smile/surprise/etc.) DON'T need that
+      // isolation, so EXPR_MAP stays wired for them. See TEETH_AND_SPEECH.md §5.
       if (!exprPaused) {
         const e = newExpr();
-        // blink — proven per-head eyelid-close direction, both eyes together
-        const blink = Math.max(ark.eyeBlinkLeft ?? 0, ark.eyeBlinkRight ?? 0);
-        if (blink > 0) for (let c = 0; c < exprLen; c++) e["expr" + c] += blinkDir[c] * blink;
-        // brow/mouth/emotion via calibrated EXPR_MAP (component-keyed)
         for (const ch in EXPR_MAP) {
           const v = ark[ch]; if (!v) continue;
           for (const [comp, w] of EXPR_MAP[ch]) e["expr" + comp] = (e["expr" + comp] ?? 0) + w * v;
