@@ -88,6 +88,57 @@ The **`--add-teeth` flag stays in `colab_bake_oac.py`** for the day a teeth
 template exists — it already prints the counts and surfaces the failure, so it's
 the test harness for verifying a new template.
 
+### ✅ But LAM's OWN demo shows teeth — via a DIFFERENT format (the FLAME path)
+LAM's project-page demo (`g.alicdn.com/T.I.D.E/GaussianAvatarShow/0.0.8/demo`)
+renders heads **with teeth**. Inspecting it: it loads a **FLAME-format** avatar
+(`…/gaussianAvatarData/20k/man.zip`) with **`getInstance(div, path, useFlame=true)`**.
+
+That zip is **not** our OAC format — it's LAM's `create_zip_archive` /
+`h5_render_data` set:
+```
+man/lbs_weight_20k.json (1.97MB)   man/skin.glb (24.9MB — vs OAC's 3.6MB)
+man/flame_params.json (430KB)       man/offset.ply (1.36MB)
+man/vertex_order.json (209KB)       man/bone_tree.json (1KB)
+```
+**Why this one HAS teeth:** the FLAME `skin.glb` is the full FLAME mesh and teeth
+are deformed by **`lbs_weight` skinning** (computed for the real topology, teeth
+included) — there is **no fixed `template_file.fbx` injection**, so no vertex
+desync. Our renderer (`gaussian-splat-renderer-for-lam@0.0.9-alpha.1`) supports
+this path: `getInstance(div, path, { useFlame: true, … })`
+(`if (charactorConfig.useFlame) renderer.useFlame = …`).
+
+### ⚠️ The catch: the FLAME path is CLIP PLAYBACK, not live control
+The FLAME render runs `updateFlameBones()` every frame, sourcing everything from
+the **baked `flame_params.json`** clip:
+```js
+this.splatMesh.bsWeight = this.flame_params['expr'][this.frame];          // expression
+setBoneRotation(bones[2], this.flame_params['jaw_pose'][this.frame]);     // JAW
+setBoneRotation(bones[0], this.flame_params['rotation'][this.frame]);     // head rotation
+```
+`this.frame` is derived from elapsed time and wraps at `totalFrames`. It
+**overwrites** anything our live `getExpressionData`→`bsWeight` produced. So:
+
+| path | teeth | live conversation |
+|------|:-----:|:-----------------:|
+| OAC (offset.ply, `useFlame:false`) — what we use | ❌ (template desync) | ✅ live `getExpressionData` |
+| FLAME (`useFlame:true`) — the demo | ✅ via `lbs_weight` | ❌ replays baked `flame_params` |
+
+You can't get both by a format swap — the teeth-capable path is wired for clip
+playback.
+
+### Three options to get teeth
+1. **Live FLAME-drive (teeth + live; the real prize, most work):** load the FLAME
+   format `useFlame:true`, and instead of letting `flame_params` play, **overwrite
+   `renderer.flame_params['expr'/'jaw_pose'/'rotation']` per frame** with our
+   viseme/emotion values (pin `totalFrames=1`, mutate index `[0]` each tick — the
+   renderer re-reads it every frame). Needs a **viseme→FLAME mapping** (ARKit
+   blendshapes → FLAME `expr` PCA coeffs + `jaw_pose` bone). See the de-risk spike
+   (`flame-spike.html`) for the make-or-break test.
+2. **Playback FLAME (teeth, not live):** bake a `flame_params` clip per TTS reply
+   and play it — teeth, but each reply is pre-rendered, not live.
+3. **Stay OAC + renderer-side teeth:** the teeth-rigged `template_file.fbx` Blender
+   job above (live conversation, but needs the asset built).
+
 ### The "Ignoring unknown cluster teeth" warning — benign, unrelated
 From `vhap/model/flame.py:981` (`process_face_clusters`): the FLAME **tracker**
 tries to build a face cluster named `teeth` for texture regularization, but the

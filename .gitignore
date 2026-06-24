@@ -6,3 +6,4 @@ __pycache__/
 *.pyc
 public/asset/avatars/ints*.zip
 .env
+public/asset/avatars/man.zip
