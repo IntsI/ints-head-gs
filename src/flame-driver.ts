@@ -63,6 +63,8 @@ export interface FlameRig {
   setExprComp(comp: number, w: number): void;
   /** Pause writeFrame's expr write so a sweep persists across ticks (bones stay live). */
   setExprPause(on: boolean): void;
+  /** Preview the wired blink at amount 0..1 (pauses expr; for verification/tuning). */
+  setBlink(amt: number): void;
   raw: { viewer: Any; fp: Any; sm: Any };
 }
 
@@ -136,16 +138,37 @@ export function createFlameRig(renderer: Any): FlameRig {
   // morph component-number → array index (names are "exprNN", shuffled order)
   const compIndex: number[] = [];
   let exprLen = 0;
+  // blink direction in FLAME-PCA space, derived per-head from geometry (which
+  // components move the eyelid region DOWN). blinkDir[comp] already scaled so
+  // ARKit blink=1 → full closure.
+  const blinkDir: number[] = [];
   if (ok) {
     const root = viewer.avatarMesh || viewer.skinModel;
-    let dict: Record<string, number> | null = null;
-    root?.traverse?.((n: Any) => { if (n.morphTargetDictionary && !dict) dict = n.morphTargetDictionary; });
+    let mesh: Any = null;
+    root?.traverse?.((n: Any) => { if (n.morphTargetDictionary && n.geometry?.morphAttributes?.position && !mesh) mesh = n; });
+    const dict: Record<string, number> | null = mesh?.morphTargetDictionary ?? null;
     if (dict) {
       exprLen = Object.keys(dict).length;
-      for (const [name, idx] of Object.entries(dict as Record<string, number>)) {
+      for (const [name, idx] of Object.entries(dict)) {
         const m = /^expr(\d+)$/.exec(name);
-        if (m) compIndex[Number(m[1])] = idx;
+        if (m) compIndex[Number(m[1])] = idx as number;
       }
+      // --- derive blink direction from eyelid-region downward morph motion ---
+      const base = mesh.geometry.attributes.position;
+      const morphs = mesh.geometry.morphAttributes.position;
+      const N = base.count;
+      const inEye = (x: number, y: number, z: number) =>
+        y > 0.01 && y < 0.055 && Math.abs(x) > 0.012 && Math.abs(x) < 0.08 && z > 0.0;
+      const score: number[] = new Array(exprLen).fill(0);
+      for (let c = 0; c < exprLen; c++) {
+        const d = morphs[compIndex[c]]; if (!d) continue;
+        let s = 0;
+        for (let i = 0; i < N; i++) if (inEye(base.getX(i), base.getY(i), base.getZ(i))) s += -d.getY(i);
+        score[c] = s;
+      }
+      const norm = Math.hypot(...score) || 1;
+      const BLINK_GAIN = 11; // normalized eye-close dir × 11 ≈ full closure (measured)
+      for (let c = 0; c < exprLen; c++) blinkDir[c] = (score[c] / norm) * BLINK_GAIN;
     }
   }
 
@@ -155,7 +178,15 @@ export function createFlameRig(renderer: Any): FlameRig {
   let cYaw = 0, cPitch = 0, tYaw = 0, tPitch = 0;
   let exprPaused = false; // calibration: hold expr so a sweep isn't wiped each tick
 
-  function newExpr(): number[] { return new Array(exprLen).fill(0); }
+  // Renderer keys bsWeight by morph NAME (for key in bsWeight → morphTargetDictionary[key])
+  // and updateBoneMatrixTexture mutates in place, so we MUST emit ALL exprN keys
+  // every frame (unused = 0) to clear stale weights. (An array → keys "0".."99" →
+  // dict lookup undefined → weights silently dropped = the no-op bug we hit.)
+  function newExpr(): Record<string, number> {
+    const o: Record<string, number> = {};
+    for (let c = 0; c < exprLen; c++) o["expr" + c] = 0;
+    return o;
+  }
 
   return {
     ok, exprLen, compIndex,
@@ -163,7 +194,7 @@ export function createFlameRig(renderer: Any): FlameRig {
 
     pinLive() {
       if (!ok) return;
-      fp.expr = [newExpr()];
+      fp.expr = [newExpr()]; // name-keyed object, all exprN = 0
       fp.jaw_pose = [[0, 0, 0]];
       fp.rotation = [[0, 0, 0]];
       fp.neck_pose = [[0, 0, 0]];
@@ -207,17 +238,18 @@ export function createFlameRig(renderer: Any): FlameRig {
       fp.rotation[0] = [pitch * 0.6 + swayX, yaw * 0.6 + swayY, tiltZ];
       fp.neck_pose[0] = [pitch * 0.4, yaw * 0.4 + swayY * 0.5, 0];
 
-      // --- EXPR (FLAME-PCA): blink/brow/mouth/emotion via calibrated EXPR_MAP ---
+      // --- EXPR (FLAME-PCA), NAME-KEYED object (renderer keys bsWeight by name) ---
       if (!exprPaused) {
-        const e = fp.expr[0];
-        for (let i = 0; i < e.length; i++) e[i] = 0;
+        const e = newExpr();
+        // blink — proven per-head eyelid-close direction, both eyes together
+        const blink = Math.max(ark.eyeBlinkLeft ?? 0, ark.eyeBlinkRight ?? 0);
+        if (blink > 0) for (let c = 0; c < exprLen; c++) e["expr" + c] += blinkDir[c] * blink;
+        // brow/mouth/emotion via calibrated EXPR_MAP (component-keyed)
         for (const ch in EXPR_MAP) {
           const v = ark[ch]; if (!v) continue;
-          for (const [comp, w] of EXPR_MAP[ch]) {
-            const idx = compIndex[comp];
-            if (idx != null) e[idx] += w * v;
-          }
+          for (const [comp, w] of EXPR_MAP[ch]) e["expr" + comp] = (e["expr" + comp] ?? 0) + w * v;
         }
+        fp.expr[0] = e;
       }
     },
 
@@ -247,11 +279,17 @@ export function createFlameRig(renderer: Any): FlameRig {
     setExprComp(comp, w) {
       if (!ok) return;
       const e = newExpr();
-      const idx = compIndex[comp];
-      if (idx != null) e[idx] = w;
+      e["expr" + comp] = w;   // name-keyed (renderer looks up morphTargetDictionary[key])
       fp.expr[0] = e;
       viewer.frame = 0;
     },
     setExprPause(on) { exprPaused = on; },
+    setBlink(amt) {
+      if (!ok) return;
+      exprPaused = true;
+      const e = newExpr();
+      for (let c = 0; c < exprLen; c++) e["expr" + c] = blinkDir[c] * amt;
+      fp.expr[0] = e; viewer.frame = 0;
+    },
   };
 }

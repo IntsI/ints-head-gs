@@ -84,9 +84,9 @@ async function main() {
     rig.writeFrame(ark);
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
-      `exprLen ${rig.exprLen} (FLAME-PCA) · expr/morph INERT in renderer → no blink/emote\n` +
+      `exprLen ${rig.exprLen} (FLAME-PCA, name-keyed) · blink LIVE${Object.keys(EXPR_MAP).length ? " + EXPR_MAP" : ""}\n` +
       `emotion ${driver.current()} · jaw bone ${rig.jawBoneRad().toFixed(3)} rad\n` +
-      `living base: jaw+gaze+head-glances+neck+breath LIVE (bones)\n` +
+      `living base: blink+jaw+gaze+head-glances+neck+breath LIVE\n` +
       `calibrate: __flame.sweepComp(n,w) · prove: __flame.proveLive()`,
     );
     requestAnimationFrame(tick);
@@ -127,6 +127,7 @@ async function main() {
   (window as Any).__flame = {
     renderer, rig, driver, speech, framing, AVATAR,
     proveLive, sweepComp, resumeExpr, inspectExpr,
+    setBlink: (a: number) => rig.setBlink(a),
     zeroExpr: () => rig.zeroExpr(),
     setExpression: (k: string, o?: Any) => driver.setExpression(k, o),
     // tune framing live: __flame.setFrame({ distMul: 1.6, dy: 0.02 })

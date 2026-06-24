@@ -370,52 +370,54 @@ overwrites `flame_params[…][0]`:
 | eye gaze / saccades | `eyes_pose` bones (L=[0..2], R=[3..5]) | ✅ live |
 | head glances (autonomous wander) + neck | `rotation`/`neck_pose` bones | ✅ live |
 | breath (chest rise/lean/swell) | splatMesh transform | ✅ live |
-| **blink / brow / mouth-shape / emotion** | `expr` (FLAME-PCA) | ❌ renderer-blocked (see below) |
+| **blink** | `expr` (FLAME-PCA, name-keyed) | ✅ live |
+| brow / mouth-shape / full emotion face | `expr` (FLAME-PCA) | ⏳ reachable (path works; needs per-channel directions) |
 
-### ❌ BLOCKER (confirmed empirically): the expr/morph path is INERT on the splats
-FLAME `expr` is the **100-dim FLAME-PCA** basis — `skin.glb` carries 100 morph
-targets `expr0..expr99` (FLAME components, NOT ARKit). Per frame the renderer does
-`splatMesh.bsWeight = flame_params['expr'][frame]` and
-`updateTetureAfterBSAndSkeleton(...)`. All the structures are present and correct:
-`splatDataTextures.flameModel` exists, `bsWeight.length===100`,
-`morphTargetInfluences===100`, `useFlameModel===true`.
-
-**But driving `expr` produces no visible facial deformation on the gaussian splats**
-in `gaussian-splat-renderer-for-lam@0.0.9-alpha.1`. Tested exhaustively on a
-freshly-baked fisherman (the strong test path — its `flame_params.json` has 518
-real tracked frames with blinks):
-- single components at ±3…±5 → no eye closure, barely-perceptible change;
-- a **real blink frame** extracted from the clip (geometry-scored, frame 112) →
-  applied at ×1 and ×4 → eyes stay open;
-- the **single most-extreme expression frame** in the whole clip (`‖expr‖≈20`),
-  applied absolutely → only a faint change.
-
-Meanwhile **bones drive the splats perfectly** (jaw tracks `jaw_pose` exactly, eyes
-track `eyes_pose`, head tracks `rotation`). So the skeleton path works and the
-morph/`bsWeight` path is effectively a no-op for the splats in this build — a
-**renderer limitation, not the ARKit→PCA mapping**. (The alicdn demo shows
-expression, so a correct/forked build presumably wires the morph-texture deform;
-this published alpha does not.) FLAME has **no eyelid bone**, so blink can't be
-faked via bones either.
-
-**Consequence:** v2 (FLAME) is alive via **bones + breath only** — jaw (speech +
-idle), eye-gaze saccades, autonomous head **glances** (slow wander, since
-cursor-follow was removed), neck, breath. No blink, no brow, no emotion face. That
-is the ceiling on this renderer build; lighting up expression needs a **forked
-renderer with a working morph-texture deform** (same fork that exposes `useFlame`).
-
-### Calibration tooling (kept, for when the renderer is fixed)
-The ARKit→PCA scaffolding stays wired so it's a drop-in once the morph path works:
+### ✅ RESOLVED: expr/morph deform works — it was a NAME-KEYING bug in our rig
+**Earlier this section said the morph path was "renderer-blocked / inert." That was
+WRONG.** The renderer is fine; LAM's demo emoting was the clue. The deform reads
+weights by **morph NAME**:
 ```js
-__flame.inspectExpr()      // exprLen (=100), EXPR_MAP keys
-__flame.sweepComp(n, w)    // pause expr + set FLAME component n to weight w
-__flame.resumeExpr()       // un-pause (EXPR_MAP live again)
+// updateBoneMatrixTexture: mutates the bone-matrix texture IN PLACE
+for (const key in this.bsWeight) {
+  const idx = this.morphTargetDictionary[key];        // key must be "expr0".."expr99"
+  boneMatrix[idx + this.bonesNum*16] = uintEncodedFloat(this.bsWeight[key]);
+}
 ```
-Fill `EXPR_MAP` in `flame-driver.ts` (keyed by ARKit channel, e.g.
-`eyeBlinkLeft: [[12, 1.0]]`); `writeFrame` then composes it from the live
-`driver.ts` output. Inert today, but ready.
+The clip stores each frame as an **object** `{expr0:…, expr1:…}`, so the demo's
+`bsWeight` keys resolve. **Our rig set `flame_params.expr[0]` as a numeric ARRAY**
+`[w0…w99]` → `for…in` keys are `"0".."99"` → `morphTargetDictionary["0"]` is
+`undefined` → every weight silently dropped → no deform. Bones never use `bsWeight`,
+so they worked — exactly the symptom (bones live, expr "inert").
 
-> Renderer blocker (unchanged): published `gaussian-splat-renderer-for-lam`
+**Fix (in `flame-driver.ts`):** write `expr[0]` as a **name-keyed object** with
+**all `expr0..expr99` keys every frame** (unused = 0 — `updateBoneMatrixTexture`
+mutates in place, so absent keys keep stale weights). Confirmed: man.zip AND
+fisherman both close their eyes; live autonomous blink fires through the loop. No
+fork, no version bump, no re-bake — the renderer (`0.0.9-alpha.1`) and the bake
+were correct all along.
+
+### Blink (live) — derived per-head from geometry
+FLAME has no eyelid bone, so blink is an `expr` direction. The rig computes it at
+load: scan each morph for **downward motion in the eyelid region**, take that as the
+blink direction, normalize, scale (`BLINK_GAIN≈11` → full closure at ARKit blink=1).
+`writeFrame` adds `blinkDir × max(eyeBlinkLeft,eyeBlinkRight)` from `driver.ts`'s
+autonomous blink. Self-calibrating for any FLAME head. Preview: `__flame.setBlink(1)`.
+
+### Brow / mouth-shape / full emotion — now reachable the same way
+The expr path works, so the remaining ARKit→FLAME-PCA channels (brow up/down, smile,
+frown, pucker…) just need their **directions** — either derived geometrically like
+blink (region-scored morph motion) or pulled from the clip — then dropped into
+`EXPR_MAP` (component-keyed) in `flame-driver.ts`; `writeFrame` already composes it
+from the live `driver.ts` output. Calibration tools: `__flame.sweepComp(n,w)` /
+`resumeExpr()` / `inspectExpr()`.
+
+**So "both teeth AND blink/emotion in one head" is achieved for blink, and is a
+small mapping task (not a fork) for the rest.**
+
+> Renderer access caveat (unchanged): published `gaussian-splat-renderer-for-lam`
 > hardcodes `useFlame=false` and never merges caller options, so the spike/compare
 > pages force the FLAME path with the gated `window.__FORCE_FLAME` node_modules
-> patch (NOT committed). **Productionizing v2 needs a forked/patched renderer.**
+> patch (`tools/patch-renderer.mjs`, postinstall; NOT committed). That patch is the
+> only renderer change needed — productionizing just needs `useFlame` exposed (a
+> one-line vendor/fork), **not** a morph-deform fix.
