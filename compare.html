@@ -50,9 +50,11 @@
       const v2El = document.getElementById("v2");
       const f1 = document.getElementById("f1");
       const f2 = document.getElementById("f2");
-      // v2 defaults to the baked FLAME fisherman (local, gitignored); ?v2= overrides.
-      // Empty v2 falls back to the spike's own default (man.zip).
-      v1El.value = qs.get("v1") || "";
+      // Default both panes to fisherman so it's apples-to-apples:
+      //   v1 = OAC fisherman from the SW cache (the "fisherman" chip → /__avatar__/fisherman.zip)
+      //   v2 = baked FLAME fisherman (local, gitignored)
+      // ?v1=/?v2= override; empty v1 falls back to bundled p2-1, empty v2 to man.zip.
+      v1El.value = qs.get("v1") ?? "/__avatar__/fisherman.zip";
       v2El.value = qs.get("v2") ?? "/asset/avatars/fisherman_flame.zip";
 
       const src1 = (a) => "/" + (a.trim() ? "?avatar=" + encodeURIComponent(a.trim()) : "");
