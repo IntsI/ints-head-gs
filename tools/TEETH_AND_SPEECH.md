@@ -466,12 +466,24 @@ blink → `eyeBlinkLeft/Right` morph = clean blink; emotion → `mouthSmile`… 
 bones, no double-drive). PCA heads fall back to the current behavior unchanged
 (verified no regression: `fisherman_flame.zip` → `arkitMode:false`, clean).
 
-**Bake (`colab_bake_flame.py --arkit`) — built, EXPERIMENTAL.** Bakes the teeth head
-with the 52 ARKit blendshapes (`bs/<arkitName>.obj`, named morphs) instead of the
-100 PCA `expr{i}`, via `build_arkit_flame_model` (LAM's `flame_arkit.py`,
-`expr_params=52`, `flame_arkit_bs.npy`, `add_teeth` on) + `bake_arkit_h5` (mirrors
-`save_h5_info` over the ARKit basis). `lbs_weight`/`bone_tree`/`offset.ply`/
-`vertex_order` are basis-independent. Fail-loud asserts if the basis isn't 52-dim.
+**Bake (`colab_bake_flame.py --arkit`) — built, EXPERIMENTAL.** Runs the normal PCA
+`save_h5_info` (lbs_weight / bone_tree / nature / offset.ply — identity geometry,
+basis-independent) then **swaps the morphs**: builds LAM's ARKit FLAME head
+(`build_arkit_flame_model`) and writes 52 `bs/<arkitName>.obj` (`write_arkit_morphs`),
+so the GLB carries ARKit `targetNames`.
+
+Two real gotchas from the actual `flame_arkit.py` (fixed in the runner):
+- **The 52 comes from `flame_arkit_bs.npy`, NOT `expr_params`.** The parent ctor has
+  `assert expr_params != 52` (misleadingly worded) — so you must pass
+  **`expr_params=100`** and supply `flame_arkit_bs_path`. (Passing 52 is what tripped
+  the first attempt.) The ARKit model has the `_up` tensors but **no
+  `save_bone_tree`/`save_h5_info`**, hence reusing the PCA path for those.
+- **`flame_arkit_bs.npy` is required but UNSHIPPED.** No LAM config references it and
+  it's not in the repo (A2E "manually customized" the ARKit↔FLAME mapping). The
+  runner auto-discovers it under `model_zoo/` (or `--arkit-bs <path>`) and **fails
+  loud** if absent — in which case the asset must be obtained from LAM/A2E. This is
+  the remaining unknown: if that `.npy` isn't in the public bundle, the route needs
+  the asset before it can run.
 
 Colab command (after the normal notebook setup; upload `colab_bake_flame.py`):
 ```bash
