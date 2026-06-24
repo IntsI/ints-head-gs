@@ -61,6 +61,8 @@ export interface FlameRig {
   zeroExpr(): void;
   /** Set a single FLAME component to weight w (zeros the rest). For sweeping. */
   setExprComp(comp: number, w: number): void;
+  /** Pause writeFrame's expr write so a sweep persists across ticks (bones stay live). */
+  setExprPause(on: boolean): void;
   raw: { viewer: Any; fp: Any; sm: Any };
 }
 
@@ -151,6 +153,7 @@ export function createFlameRig(renderer: Any): FlameRig {
   let baseY = 0, baseZ = 0, sx = 1, sy = 1, sz = 1;
   // head sway clock + eased cursor
   let cYaw = 0, cPitch = 0, tYaw = 0, tPitch = 0;
+  let exprPaused = false; // calibration: hold expr so a sweep isn't wiped each tick
 
   function newExpr(): number[] { return new Array(exprLen).fill(0); }
 
@@ -185,25 +188,35 @@ export function createFlameRig(renderer: Any): FlameRig {
       const rPit = ((ark.eyeLookDownRight ?? 0) - (ark.eyeLookUpRight ?? 0)) * EYE_RAD;
       fp.eyes_pose[0] = [lPit, lYaw, 0, rPit, rYaw, 0];
 
-      // --- HEAD + NECK (bones 0/1): eased cursor + always-on micro sway ---
-      const k = 1 - Math.exp(-0.016 / 0.12);
-      cYaw += (tYaw - cYaw) * k; cPitch += (tPitch - cPitch) * k;
+      // --- HEAD + NECK (bones 0/1): autonomous slow "glances" + micro sway ---
+      // FLAME has no eyelid bone and the expr/morph path is inert on this build
+      // (blink/emotion can't show), so we lean on bone life: a gentle wander makes
+      // the head slowly look around, reading alive. (setHeadTarget still overrides
+      // if cursor-follow is ever re-enabled.)
       const tt = performance.now() / 1000;
-      const swayY = Math.sin(tt * 0.23) * 0.015;
-      const swayX = Math.sin(tt * 0.6 + 1.3) * 0.010;
+      const wanderYaw = (Math.sin(tt * 0.13) * 0.5 + Math.sin(tt * 0.071 + 1.7) * 0.35) * 0.45;
+      const wanderPit = (Math.sin(tt * 0.097 + 0.6) * 0.4 + Math.sin(tt * 0.053) * 0.25) * 0.4;
+      if (tYaw === 0 && tPitch === 0) { tYaw = wanderYaw; tPitch = wanderPit; }
+      const k = 1 - Math.exp(-0.016 / 0.5); // slow ease → unhurried glances
+      cYaw += (tYaw - cYaw) * k; cPitch += (tPitch - cPitch) * k;
+      tYaw = 0; tPitch = 0; // consumed; wander re-supplies next frame
+      const swayY = Math.sin(tt * 0.23) * 0.012;
+      const swayX = Math.sin(tt * 0.6 + 1.3) * 0.008;
       const tiltZ = Math.sin(tt * 0.17) * 0.012;
-      const yaw = -cYaw * HEAD_YAW, pitch = -cPitch * HEAD_PITCH;
+      const yaw = cYaw * HEAD_YAW, pitch = cPitch * HEAD_PITCH;
       fp.rotation[0] = [pitch * 0.6 + swayX, yaw * 0.6 + swayY, tiltZ];
       fp.neck_pose[0] = [pitch * 0.4, yaw * 0.4 + swayY * 0.5, 0];
 
       // --- EXPR (FLAME-PCA): blink/brow/mouth/emotion via calibrated EXPR_MAP ---
-      const e = fp.expr[0];
-      for (let i = 0; i < e.length; i++) e[i] = 0;
-      for (const ch in EXPR_MAP) {
-        const v = ark[ch]; if (!v) continue;
-        for (const [comp, w] of EXPR_MAP[ch]) {
-          const idx = compIndex[comp];
-          if (idx != null) e[idx] += w * v;
+      if (!exprPaused) {
+        const e = fp.expr[0];
+        for (let i = 0; i < e.length; i++) e[i] = 0;
+        for (const ch in EXPR_MAP) {
+          const v = ark[ch]; if (!v) continue;
+          for (const [comp, w] of EXPR_MAP[ch]) {
+            const idx = compIndex[comp];
+            if (idx != null) e[idx] += w * v;
+          }
         }
       }
     },
@@ -239,5 +252,6 @@ export function createFlameRig(renderer: Any): FlameRig {
       fp.expr[0] = e;
       viewer.frame = 0;
     },
+    setExprPause(on) { exprPaused = on; },
   };
 }

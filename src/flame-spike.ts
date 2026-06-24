@@ -84,9 +84,9 @@ async function main() {
     rig.writeFrame(ark);
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
-      `exprLen ${rig.exprLen} (FLAME-PCA) · EXPR_MAP ${Object.keys(EXPR_MAP).length ? "calibrated" : "EMPTY → no blink/emote yet"}\n` +
+      `exprLen ${rig.exprLen} (FLAME-PCA) · expr/morph INERT in renderer → no blink/emote\n` +
       `emotion ${driver.current()} · jaw bone ${rig.jawBoneRad().toFixed(3)} rad\n` +
-      `living base: jaw+gaze+head-sway+neck+breath LIVE\n` +
+      `living base: jaw+gaze+head-glances+neck+breath LIVE (bones)\n` +
       `calibrate: __flame.sweepComp(n,w) · prove: __flame.proveLive()`,
     );
     requestAnimationFrame(tick);
@@ -117,7 +117,8 @@ async function main() {
   // e.g. for (let n=0;n<rig.exprLen;n++){ __flame.sweepComp(n,1); await ... }
   // When you find the one(s) that close eyes / raise brows / smile, add them to
   // EXPR_MAP in flame-driver.ts (eyeBlinkLeft/Right, browInnerUp, mouthSmile…).
-  function sweepComp(comp: number, w = 1) { rig.setExprComp(comp, w); return `expr component ${comp} = ${w}`; }
+  function sweepComp(comp: number, w = 2.5) { rig.setExprPause(true); rig.setExprComp(comp, w); return `expr[${comp}] = ${w} (paused; call __flame.resumeExpr() to un-pause)`; }
+  function resumeExpr() { rig.setExprPause(false); rig.zeroExpr(); return "expr resumed (EXPR_MAP live)"; }
   function inspectExpr() {
     return { exprLen: rig.exprLen, compIndexSample: rig.compIndex.slice(0, 10),
       exprMapKeys: Object.keys(EXPR_MAP), note: "sweepComp(n,1) for n in 0..exprLen-1 to find blink/brow/smile" };
@@ -125,7 +126,7 @@ async function main() {
 
   (window as Any).__flame = {
     renderer, rig, driver, speech, framing, AVATAR,
-    proveLive, sweepComp, inspectExpr,
+    proveLive, sweepComp, resumeExpr, inspectExpr,
     zeroExpr: () => rig.zeroExpr(),
     setExpression: (k: string, o?: Any) => driver.setExpression(k, o),
     // tune framing live: __flame.setFrame({ distMul: 1.6, dy: 0.02 })

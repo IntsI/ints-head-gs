@@ -368,34 +368,52 @@ overwrites `flame_params[…][0]`:
 |---|---|---|
 | jaw (idle breath + speech visemes) | `jaw_pose` bone | ✅ live |
 | eye gaze / saccades | `eyes_pose` bones (L=[0..2], R=[3..5]) | ✅ live |
-| head sway + cursor-follow | `rotation` bone | ✅ live |
-| neck | `neck_pose` bone | ✅ live |
+| head glances (autonomous wander) + neck | `rotation`/`neck_pose` bones | ✅ live |
 | breath (chest rise/lean/swell) | splatMesh transform | ✅ live |
-| **blink / brow / mouth-shape / emotion** | `expr` (FLAME-PCA) | ⏳ needs calibration |
+| **blink / brow / mouth-shape / emotion** | `expr` (FLAME-PCA) | ❌ renderer-blocked (see below) |
 
-### Why blink/emotion wait — and the calibration tool
-**Confirmed:** FLAME `expr` is the **100-dim FLAME-PCA** basis — `skin.glb` carries
-100 morph targets `expr0..expr99` (FLAME components), NOT ARKit blendshapes. Per
-frame the renderer does `splatMesh.bsWeight = flame_params['expr'][frame]`. The
-**semantics of each PCA component are not known a priori**, so an ARKit→PCA map
-(`EXPR_MAP` in `flame-driver.ts`) must be **calibrated empirically per head**.
-(man.zip ships an EMPTY `expr`, but the 100 morphs exist, so the tool works on any
-FLAME head — best done on a freshly-baked fisherman.)
+### ❌ BLOCKER (confirmed empirically): the expr/morph path is INERT on the splats
+FLAME `expr` is the **100-dim FLAME-PCA** basis — `skin.glb` carries 100 morph
+targets `expr0..expr99` (FLAME components, NOT ARKit). Per frame the renderer does
+`splatMesh.bsWeight = flame_params['expr'][frame]` and
+`updateTetureAfterBSAndSkeleton(...)`. All the structures are present and correct:
+`splatDataTextures.flameModel` exists, `bsWeight.length===100`,
+`morphTargetInfluences===100`, `useFlameModel===true`.
 
-In the FLAME spike console:
+**But driving `expr` produces no visible facial deformation on the gaussian splats**
+in `gaussian-splat-renderer-for-lam@0.0.9-alpha.1`. Tested exhaustively on a
+freshly-baked fisherman (the strong test path — its `flame_params.json` has 518
+real tracked frames with blinks):
+- single components at ±3…±5 → no eye closure, barely-perceptible change;
+- a **real blink frame** extracted from the clip (geometry-scored, frame 112) →
+  applied at ×1 and ×4 → eyes stay open;
+- the **single most-extreme expression frame** in the whole clip (`‖expr‖≈20`),
+  applied absolutely → only a faint change.
+
+Meanwhile **bones drive the splats perfectly** (jaw tracks `jaw_pose` exactly, eyes
+track `eyes_pose`, head tracks `rotation`). So the skeleton path works and the
+morph/`bsWeight` path is effectively a no-op for the splats in this build — a
+**renderer limitation, not the ARKit→PCA mapping**. (The alicdn demo shows
+expression, so a correct/forked build presumably wires the morph-texture deform;
+this published alpha does not.) FLAME has **no eyelid bone**, so blink can't be
+faked via bones either.
+
+**Consequence:** v2 (FLAME) is alive via **bones + breath only** — jaw (speech +
+idle), eye-gaze saccades, autonomous head **glances** (slow wander, since
+cursor-follow was removed), neck, breath. No blink, no brow, no emotion face. That
+is the ceiling on this renderer build; lighting up expression needs a **forked
+renderer with a working morph-texture deform** (same fork that exposes `useFlame`).
+
+### Calibration tooling (kept, for when the renderer is fixed)
+The ARKit→PCA scaffolding stays wired so it's a drop-in once the morph path works:
 ```js
-__flame.inspectExpr()         // exprLen (=100), EXPR_MAP keys
-__flame.sweepComp(n, 1)       // set FLAME component n=0..99 to weight 1, eyeball it
-__flame.zeroExpr()            // back to neutral
+__flame.inspectExpr()      // exprLen (=100), EXPR_MAP keys
+__flame.sweepComp(n, w)    // pause expr + set FLAME component n to weight w
+__flame.resumeExpr()       // un-pause (EXPR_MAP live again)
 ```
-Sweep `n = 0..99`, note which component(s) close the eyes (→ blink), raise brows,
-smile, etc., then add them to `EXPR_MAP` (keyed by ARKit channel, e.g.
-`eyeBlinkLeft: [[12, 1.0]]`). Once filled, blink/brow/emotion light up on v2 with
-zero other changes — they ride the existing `driver.ts` output through `writeFrame`.
-
-Until then v2 is **alive via bones + breath** (jaw, gaze, head drift, neck), just
-not blinking/emoting — which is the honest current state, gated on the fisherman
-bake + a few minutes of sweeping.
+Fill `EXPR_MAP` in `flame-driver.ts` (keyed by ARKit channel, e.g.
+`eyeBlinkLeft: [[12, 1.0]]`); `writeFrame` then composes it from the live
+`driver.ts` output. Inert today, but ready.
 
 > Renderer blocker (unchanged): published `gaussian-splat-renderer-for-lam`
 > hardcodes `useFlame=false` and never merges caller options, so the spike/compare
