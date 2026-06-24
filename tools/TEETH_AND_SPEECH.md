@@ -310,6 +310,21 @@ copied from the `--motion` clip. We pin `totalFrames=1` and overwrite it live in
 the spike, so its content only needs valid keys/shapes (translation, rotation,
 neck_pose, jaw_pose, eyes_pose, shape, expr).
 
+### Preflight (run this FIRST — fails in seconds, not after inference)
+The FLAME runner needs deps the OAC bake doesn't (chiefly
+`tools/generateGLBWithBlender_v2.py`, the FLAME export methods, a Blender with
+`wm.obj_import` + glTF). `tools/preflight_flame.py` checks them all by file
+existence + source-grep + a Blender `bpy` smoke test — **no model build, no
+inference**. Upload it into `/content/LAM/` (next to the runner) and run as a cell
+(base kernel — no conda env needed):
+
+```bash
+!python preflight_flame.py --blender_path {BLENDER} --motion Look_In_My_Eyes
+```
+Exit 0 = good to bake; it prints exactly which dep is missing otherwise (e.g.
+`MISSING tools/generateGLBWithBlender_v2.py → update LAM`, or a Blender OBJ-import
+op mismatch). Only run the bake below once preflight is green.
+
 ### Exact Colab command (bake fisherman with teeth)
 Reuse the **same notebook setup** as the OAC bake (`LAM_bake_oac_colab.ipynb`
 cells 1–5: GPU, conda env `lam`/`RUN`, deps, weights, Blender — all identical).
