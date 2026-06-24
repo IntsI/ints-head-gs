@@ -25,6 +25,13 @@ raise — fall back to the notebook's Gradio cell, which runs LAM's own code.
 import argparse
 import os
 import sys
+
+# Robustness (conda run doesn't reliably pass a shell-prefix env var or cwd to
+# python): force the headless matplotlib backend BEFORE lam imports matplotlib,
+# and put the repo on sys.path so `lam`/`tools` resolve regardless of cwd.
+os.environ["MPLBACKEND"] = "Agg"
+sys.path.insert(0, "/content/LAM")
+
 import shutil
 import zipfile
 from glob import glob
@@ -74,6 +81,8 @@ def main() -> None:
         "NUMBA_THREADING_LAYER": "omp",
     })
 
+    import matplotlib
+    matplotlib.use("Agg")  # belt-and-suspenders with the MPLBACKEND env set at module top
     import torch
     import app_lam  # importing does NOT launch gradio (that's under __main__)
     from tools.generateARKITGLBWithBlender import generate_glb

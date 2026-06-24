@@ -74,11 +74,16 @@ hang errors the cell. `INSTALL DONE` prints only after an in-env `IMPORTS_OK`
 check imports `torch, pytorch3d, diff_gaussian_rasterization, nvdiffrast.torch` +
 `ModelLAM` + `FlameTrackingSingleImage`.
 
-The `IMPORTS_OK` check runs with **`MPLBACKEND=Agg`** (same as the bake). LAM
-imports `matplotlib.pyplot` at import time; without `MPLBACKEND=Agg` the subprocess
-inherits Colab's notebook-only backend and **false-fails** with
-`ValueError: Key backend: 'module://matplotlib_inline.backend_inline' is not a
-valid value for backend` — even though the env is fine. Set it for that call.
+The `IMPORTS_OK` check (and the bake) set **`MPLBACKEND=Agg`** and `sys.path`
+**inside the Python script**, not as shell prefixes — because `conda run` does
+**not** reliably pass a shell-prefix env var or preserve cwd to the child python.
+Two symptoms this caused on a fresh runtime, both fixed by baking it in:
+- `ValueError: …matplotlib_inline.backend_inline is not a valid value for backend`
+  — LAM imports `matplotlib.pyplot` at import; the env inherited Colab's
+  notebook-only backend. Fix: `os.environ['MPLBACKEND']='Agg'` + `matplotlib.use('Agg')`
+  at the top of the script.
+- `ModuleNotFoundError: No module named 'lam'` — child python wasn't at the repo
+  root. Fix: `sys.path.insert(0,'/content/LAM')` in the script.
 
 ### If Cell 2 fails
 - `…matplotlib_inline.backend_inline is not a valid value for backend` in the
@@ -106,7 +111,9 @@ the base kernel); if missing, downloads the wheel **with its real filename**
 ## Cell 6 — bake
 `!MPLBACKEND=Agg {RUN} python colab_bake_oac.py --image … --blender_path {BLENDER}
 --motion Look_In_My_Eyes`
-- `MPLBACKEND=Agg` — matplotlib's default inline backend crashes headless.
+- `MPLBACKEND=Agg` is also set **inside `colab_bake_oac.py`** (`os.environ` +
+  `matplotlib.use('Agg')` at the top) so it's robust even if `conda run` drops the
+  shell-prefix env var. The runner also `sys.path.insert`s `/content/LAM`.
 - `--motion Look_In_My_Eyes` — clip name only (trap #3).
 - Runner is adapted from `app_lam.py core_fn`; on LAM-internal signature drift,
   use the Gradio fallback cell below it.
