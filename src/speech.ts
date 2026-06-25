@@ -42,9 +42,9 @@ export const VISEMES: Record<string, Arkit> = {
   KK: { jawOpen: 0.18, mouthLowerDownLeft: 0.08, mouthLowerDownRight: 0.08 },
   // ch j sh — rounded via PUCKER (funnel moves the nose ~2x more, so keep it low)
   CH: { jawOpen: 0.10, mouthFunnel: 0.18, mouthPucker: 0.34 },
-  // s z — narrow, slight spread; very small jaw (cheek kept subtle)
-  SS: { jawOpen: 0.05, mouthStretchLeft: 0.24, mouthStretchRight: 0.24,
-        mouthSmileLeft: 0.12, mouthSmileRight: 0.12, cheekSquintLeft: 0.05, cheekSquintRight: 0.05 },
+  // s z — narrow, slight spread; very small jaw (corners kept modest)
+  SS: { jawOpen: 0.05, mouthStretchLeft: 0.18, mouthStretchRight: 0.18,
+        mouthSmileLeft: 0.08, mouthSmileRight: 0.08, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
   // n ng — nasal, lips close-ish
   NN: { jawOpen: 0.10, mouthClose: 0.24 },
   // r — rounded (pucker-led)
@@ -52,13 +52,13 @@ export const VISEMES: Record<string, Arkit> = {
 
   // --- vowel shapes ---
   // ah — the one true jaw-opener; relaxed lips
-  AA: { jawOpen: 0.50, mouthLowerDownLeft: 0.14, mouthLowerDownRight: 0.14 },
-  // ee — wide, jaw nearly closed; cheeks lift (subtle)
-  EE: { jawOpen: 0.08, mouthStretchLeft: 0.44, mouthStretchRight: 0.44,
-        mouthSmileLeft: 0.26, mouthSmileRight: 0.26, cheekSquintLeft: 0.07, cheekSquintRight: 0.07 },
+  AA: { jawOpen: 0.45, mouthLowerDownLeft: 0.14, mouthLowerDownRight: 0.14 },
+  // ee — wide but corners modest (stretch+smile pull the corners hard, so kept low)
+  EE: { jawOpen: 0.08, mouthStretchLeft: 0.30, mouthStretchRight: 0.30,
+        mouthSmileLeft: 0.14, mouthSmileRight: 0.14, cheekSquintLeft: 0.05, cheekSquintRight: 0.05 },
   // ih — wide-ish, a little more open than ee
-  IH: { jawOpen: 0.16, mouthStretchLeft: 0.22, mouthStretchRight: 0.22,
-        mouthSmileLeft: 0.14, mouthSmileRight: 0.14, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
+  IH: { jawOpen: 0.16, mouthStretchLeft: 0.16, mouthStretchRight: 0.16,
+        mouthSmileLeft: 0.08, mouthSmileRight: 0.08, cheekSquintLeft: 0.03, cheekSquintRight: 0.03 },
   // oh — rounded + open (pucker-led, low funnel)
   OH: { jawOpen: 0.30, mouthFunnel: 0.16, mouthPucker: 0.34 },
   // oo/uw — round, forward, small jaw (pucker-led; funnel low to spare the nose)

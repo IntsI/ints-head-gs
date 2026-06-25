@@ -156,7 +156,10 @@ const BONE_DRIVEN = new Set([
 ]);
 
 // ARKit (0..1) → radians/scale tuning for the bone channels.
-const JAW_RAD = 0.55;   // jawOpen=1 → ~0.55 rad (matches the spike's good range)
+// jawOpen=1 → ~0.45 rad. The jaw bone hinges at the ear, so big jaw rotation drags
+// the ear/jaw-hinge area (no morph touches the ears — it's the bone skinning). Kept
+// modest so opening the mouth doesn't visibly move the ears.
+const JAW_RAD = 0.45;
 const EYE_RAD = 0.30;   // full gaze dart → ~0.30 rad eye rotation
 const HEAD_YAW = 0.42;  // cursor head yaw range (rad), split head/neck
 const HEAD_PITCH = 0.26;
