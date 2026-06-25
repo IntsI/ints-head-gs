@@ -23,29 +23,46 @@ export interface VisemeSegment {
 }
 
 // ~16 visemes. Each = a target dict of jaw + lip + mouth + cheek ARKit coeffs.
-// Principled mouth SHAPES (jawOpen always considered), not just lip width.
+// Lips do the SHAPING; jaw is kept subtle so it reads as articulation, not a hinge
+// (only AA/OH really open the jaw). All channels are standard ARKit-52 morphs.
 export const VISEMES: Record<string, Arkit> = {
   sil: {}, // rest / silence — mouth closes via the ease toward empty
 
   // --- consonant classes ---
-  PP: { mouthClose: 0.35, mouthPressLeft: 0.25, mouthPressRight: 0.25 }, // p b m (lips together)
-  FF: { jawOpen: 0.10, mouthRollLower: 0.45, mouthShrugUpper: 0.12 },    // f v (lip to teeth)
-  TH: { jawOpen: 0.20, tongueOut: 0.30, mouthShrugUpper: 0.10 },         // th
-  DD: { jawOpen: 0.22, mouthShrugUpper: 0.08 },                          // d t l n (alveolar)
-  KK: { jawOpen: 0.26 },                                                 // k g (velar)
-  CH: { jawOpen: 0.20, mouthFunnel: 0.50, mouthPucker: 0.28 },           // ch j sh (rounded)
-  SS: { jawOpen: 0.12, mouthSmileLeft: 0.22, mouthSmileRight: 0.22,      // s z (narrow, spread)
-        mouthStretchLeft: 0.18, mouthStretchRight: 0.18 },
-  NN: { jawOpen: 0.14, mouthClose: 0.12 },                               // n ng
-  RR: { jawOpen: 0.22, mouthFunnel: 0.30, mouthPucker: 0.18 },           // r
+  // p b m — lips fully meet, jaw closed
+  PP: { mouthClose: 0.62, mouthPressLeft: 0.30, mouthPressRight: 0.30 },
+  // f v — lower lip to upper teeth (lower lip up/in). NO mouthUpperUp — on FLAME it
+  // flares the nostrils (reads as the nose moving), which doesn't happen for f/v.
+  FF: { jawOpen: 0.05, mouthLowerDownLeft: 0.30, mouthLowerDownRight: 0.30, mouthRollLower: 0.26 },
+  // th — tongue tip between teeth, jaw mid
+  TH: { jawOpen: 0.15, tongueOut: 0.30, mouthShrugUpper: 0.08 },
+  // d t l n — alveolar; slight tongue, jaw mid
+  DD: { jawOpen: 0.15, tongueOut: 0.12, mouthShrugUpper: 0.06 },
+  // k g — velar; small open, no lip shape
+  KK: { jawOpen: 0.18, mouthLowerDownLeft: 0.08, mouthLowerDownRight: 0.08 },
+  // ch j sh — rounded, lips forward, small jaw
+  CH: { jawOpen: 0.10, mouthFunnel: 0.46, mouthPucker: 0.34 },
+  // s z — narrow, slight spread; very small jaw (cheek kept subtle)
+  SS: { jawOpen: 0.05, mouthStretchLeft: 0.24, mouthStretchRight: 0.24,
+        mouthSmileLeft: 0.12, mouthSmileRight: 0.12, cheekSquintLeft: 0.05, cheekSquintRight: 0.05 },
+  // n ng — nasal, lips close-ish
+  NN: { jawOpen: 0.10, mouthClose: 0.24 },
+  // r — rounded
+  RR: { jawOpen: 0.12, mouthFunnel: 0.30, mouthPucker: 0.22 },
 
   // --- vowel shapes ---
-  AA: { jawOpen: 0.55, mouthLowerDownLeft: 0.20, mouthLowerDownRight: 0.20 }, // ah (open)
-  EE: { jawOpen: 0.18, mouthSmileLeft: 0.38, mouthSmileRight: 0.38,           // ee (wide)
-        mouthStretchLeft: 0.28, mouthStretchRight: 0.28 },
-  IH: { jawOpen: 0.26, mouthSmileLeft: 0.18, mouthSmileRight: 0.18 },         // ih
-  OH: { jawOpen: 0.40, mouthFunnel: 0.42, mouthPucker: 0.22 },                // oh (rounded open)
-  OU: { jawOpen: 0.18, mouthPucker: 0.60, mouthFunnel: 0.50 },                // oo/u (rounded tight)
+  // ah — the one true jaw-opener; relaxed lips
+  AA: { jawOpen: 0.50, mouthLowerDownLeft: 0.14, mouthLowerDownRight: 0.14 },
+  // ee — wide, jaw nearly closed; cheeks lift (subtle)
+  EE: { jawOpen: 0.08, mouthStretchLeft: 0.44, mouthStretchRight: 0.44,
+        mouthSmileLeft: 0.26, mouthSmileRight: 0.26, cheekSquintLeft: 0.07, cheekSquintRight: 0.07 },
+  // ih — wide-ish, a little more open than ee
+  IH: { jawOpen: 0.16, mouthStretchLeft: 0.22, mouthStretchRight: 0.22,
+        mouthSmileLeft: 0.14, mouthSmileRight: 0.14, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
+  // oh — rounded + open
+  OH: { jawOpen: 0.30, mouthFunnel: 0.42, mouthPucker: 0.28 },
+  // oo/uw — round, forward, small jaw (a touch of cheek puff)
+  OU: { jawOpen: 0.08, mouthPucker: 0.60, mouthFunnel: 0.50, cheekPuff: 0.05 },
 };
 
 /** Every channel any viseme can touch — so the ease can pull unused ones to 0. */
@@ -157,16 +174,30 @@ export function createSpeech(): SpeechHandle {
   let playing = false;
   let activeViseme = "sil";
 
-  const TAU = 0.06;    // co-articulation ease: fast enough for speech, smooth (no snap)
-  const TAIL = 0.18;   // keep easing toward sil this long after the last segment
+  const TAU_LIP = 0.05;  // lips ease fast (crisp consonants); short segs undershoot
+  const TAU_JAW = 0.09;  // jaw is heavier/slower → reads semi-independent of the lips
+  const TAIL = 0.18;     // keep easing toward sil this long after the last segment
+  // anticipation: in the last (1-ANTIC_AT) of a segment, start blending toward the
+  // NEXT viseme up to ANTIC_MAX — the mouth pre-forms the next sound (co-articulation).
+  const ANTIC_AT = 0.6, ANTIC_MAX = 0.4;
+
+  function lerpVis(a: Arkit, b: Arkit, t: number): Arkit {
+    if (t <= 0) return a; if (t >= 1) return b;
+    const out: Arkit = {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) out[k] = (a[k] ?? 0) * (1 - t) + (b[k] ?? 0) * t;
+    return out;
+  }
 
   function targetAt(t: number): Arkit {
-    // active segment = the one whose [start, start+dur) contains t (slight overlap
-    // is provided by the ease itself). Past the end -> sil.
-    for (const s of seq) {
+    for (let i = 0; i < seq.length; i++) {
+      const s = seq[i];
       if (t >= s.startTime && t < s.startTime + s.duration) {
         activeViseme = s.viseme;
-        return VISEMES[s.viseme] ?? {};
+        const cur = VISEMES[s.viseme] ?? {};
+        const next = seq[i + 1] ? (VISEMES[seq[i + 1].viseme] ?? {}) : {};
+        const p = (t - s.startTime) / Math.max(s.duration, 1e-4);
+        const a = p > ANTIC_AT ? ANTIC_MAX * ((p - ANTIC_AT) / (1 - ANTIC_AT)) : 0;
+        return a > 0 ? lerpVis(cur, next, a) : cur;
       }
     }
     activeViseme = "sil";
@@ -188,8 +219,14 @@ export function createSpeech(): SpeechHandle {
       const t = clock - startAt;
       const target = playing ? targetAt(t) : {};
 
-      const k = 1 - Math.exp(-dt / TAU);
-      for (const c of SPEECH_CHANNELS) cur[c] += ((target[c] ?? 0) - cur[c]) * k;
+      // per-channel ease: jaw heavier (semi-independent), lips fast (crisp; fast
+      // syllables naturally undershoot since cur can't reach the target in time).
+      const kLip = 1 - Math.exp(-dt / TAU_LIP);
+      const kJaw = 1 - Math.exp(-dt / TAU_JAW);
+      for (const c of SPEECH_CHANNELS) {
+        const k = c === "jawOpen" ? kJaw : kLip;
+        cur[c] += ((target[c] ?? 0) - cur[c]) * k;
+      }
 
       if (playing) {
         const end = seq.length ? seq[seq.length - 1].startTime + seq[seq.length - 1].duration : 0;
