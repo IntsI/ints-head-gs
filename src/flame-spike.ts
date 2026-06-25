@@ -203,10 +203,12 @@ function buildHaloControls(panel: HTMLElement) {
     rng.addEventListener("input", () => { const v = +rng.value; W[gkey] = v; val.textContent = v.toFixed(dec); localStorage.setItem(lkey, String(v)); });
     row.append(lab, rng, val); wrap.appendChild(row);
   };
-  // PRIMARY halo lever: CLAMP (shrink) oversized hair-edge splats — no holes, just
-  // a tighter glow. Drag DOWN from 1024 until the halo hugs the silhouette (back off
-  // if the whole head starts looking grainy/point-cloudy).
-  mk("hair-edge shrink (max size)", "__SPLAT_MAXSIZE", "splatMaxSize", 4, 1024, 2, 1024, 0);
+  // PRIMARY halo lever: CLAMP (shrink) the splat screen-size. The silhouette/halo
+  // splats are ~2.3x larger than the face-core splats (measured), so there's a thin
+  // window just above the core size where the halo tightens but the face stays solid.
+  // Range tuned low+fine so that window is reachable: ~4 = all dots, ~256 = no-op.
+  // Sweep up from a low value until the face just turns solid; the halo stays tight.
+  mk("hair-edge shrink (max size)", "__SPLAT_MAXSIZE", "splatMaxSize", 4, 256, 1, 256, 0);
   mk("glow cull (minAlpha)", "__SPLAT_MINALPHA", "splatMinAlpha", 0.004, 0.15, 0.002, 0.04, 3);
   mk("splat tighten (kernel)", "__SPLAT_KERNEL", "splatKernel", 0.0, 0.4, 0.01, 0.3, 2);
   const h2 = panel.querySelector("h2");
