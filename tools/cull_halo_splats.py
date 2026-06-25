@@ -111,11 +111,17 @@ def main():
         hair = np.array(a.tint, dtype=np.float32)
         fidx = [idx['f_dc_0'], idx['f_dc_1'], idx['f_dc_2']]
         cur = rgb[target]
-        new = cur * (1 - a.strength) + hair[None, :] * a.strength
+        # Apply the blonde HUE while PRESERVING each splat's own luminance, so a bright white
+        # highlight becomes light pale-blonde (not flat orange) and midtones become mid-blonde.
+        # tinted = lum * (blondeHue/mean(blondeHue)); then blend toward it by strength.
+        ratio = hair / hair.mean()                       # blonde hue direction, mean-normalised
+        tlum = cur.mean(1, keepdims=True)                # each splat's original luminance
+        toned = np.clip(tlum * ratio[None, :], 0, 1)
+        new = cur * (1 - a.strength) + toned * a.strength
         rows = np.where(target)[0]
         arr[np.ix_(rows, fidx)] = (new - 0.5) / C0   # rgb -> f_dc (SH deg 0)
-        print(f"tinted {len(rows)} white-edge splats ({100*target.mean():.1f}%) "
-              f"toward {a.tint} @ strength {a.strength}")
+        print(f"tinted {len(rows)} hair splats ({100*target.mean():.1f}%) "
+              f"toward hue {a.tint} (luma-preserving) @ strength {a.strength}")
         new_ply = header + arr.tobytes()
         with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED) as zout:
             for nm in names:
