@@ -82,6 +82,14 @@ async function main() {
     if (slider > 0) ark.jawOpen = Math.max(ark.jawOpen ?? 0, slider / 0.55); // slider is rad; ark is 0..1
     rig.breath(now);
     rig.writeFrame(ark);
+    // live splat-halo control (patched renderer uniforms): dial via the console
+    //   window.__SPLAT_MINALPHA = 0.04   // higher = cull more faint edge glow
+    //   window.__SPLAT_KERNEL   = 0.3    // 2D dilation; lower = tighter splats
+    const u = (renderer.viewer?.splatMesh?.material?.uniforms) as Any;
+    if (u?.uMinAlpha) {
+      u.uMinAlpha.value = (window as Any).__SPLAT_MINALPHA ?? 0.04;
+      u.uKernel2D.value = (window as Any).__SPLAT_KERNEL ?? 0.3;
+    }
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
       (rig.arkitMode
