@@ -240,7 +240,7 @@ function buildPanel(rig: FlameRig): PanelApi {
       const val = document.createElement("span"); val.className = "val"; val.textContent = "0.00";
       rng.addEventListener("input", () => {
         const v = +rng.value; layerSet(name, v); val.textContent = v.toFixed(2);
-        if (mode === "live") clearActive();
+        if (mode === "live") clearActive(); else saveNeutral();
       });
       row.append(lab, rng, val); slidersEl.appendChild(row);
       els[name] = { rng, val };
@@ -281,17 +281,36 @@ function buildPanel(rig: FlameRig): PanelApi {
     if (currentPreset) applyPreset(currentPreset, +intensityEl.value);
   });
   $("resetBtn").addEventListener("click", () => {
-    if (mode === "neutral") rig.resetNeutral(); else { rig.resetMorphs(); clearActive(); }
+    if (mode === "neutral") { rig.resetNeutral(); saveNeutral(); } else { rig.resetMorphs(); clearActive(); }
     sync();
   });
-  setMode("neutral"); // default
+
+  // --- save / persist the neutral-offset CALIBRATION (per avatar) ---
+  const NKEY = "flameNeutral:" + (AVATAR.split("/").pop() ?? AVATAR);
+  function saveNeutral() { try { localStorage.setItem(NKEY, JSON.stringify(rig.getNeutralOffset())); } catch { /* ignore */ } }
+  function loadNeutral() { try { const s = localStorage.getItem(NKEY); if (s) rig.setNeutralOffset(JSON.parse(s)); } catch { /* ignore */ } }
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "💾 save calib";
+  saveBtn.title = "persist this neutral-offset calibration for " + NKEY.slice(13) + " and copy the JSON";
+  saveBtn.style.cssText = "background:#22c55e;color:#06280f;margin-left:6px";
+  saveBtn.addEventListener("click", async () => {
+    saveNeutral();
+    const json = JSON.stringify(rig.getNeutralOffset());
+    try { await navigator.clipboard.writeText(json); saveBtn.textContent = "✓ saved + copied"; }
+    catch { saveBtn.textContent = "✓ saved"; console.log("[calib]", NKEY, json); }
+    setTimeout(() => { saveBtn.textContent = "💾 save calib"; }, 1600);
+  });
+  $("resetBtn").parentElement!.appendChild(saveBtn);
+
+  loadNeutral();      // restore the saved calibration for this avatar
+  setMode("neutral"); // default (also syncs sliders to the loaded neutral)
 
   const reflect = (n: string, v: number) => { if (els[n]) { els[n].rng.value = String(v); els[n].val.textContent = (+v).toFixed(2); } };
   return {
     setMorph: (n, v) => { setMode("live"); rig.setMorph(n, v); reflect(n, v); clearActive(); },
     preset: (n, intensity = 1) => applyPreset(n, intensity),
-    reset: () => { if (mode === "neutral") rig.resetNeutral(); else { rig.resetMorphs(); clearActive(); } sync(); },
-    setNeutralOffset: (map) => { rig.setNeutralOffset(map); if (mode === "neutral") sync(); console.log("[panel] neutral offset set:", map); },
+    reset: () => { if (mode === "neutral") { rig.resetNeutral(); saveNeutral(); } else { rig.resetMorphs(); clearActive(); } sync(); },
+    setNeutralOffset: (map) => { rig.setNeutralOffset(map); saveNeutral(); if (mode === "neutral") sync(); console.log("[panel] neutral offset set + saved:", map); },
     getNeutralOffset: () => rig.getNeutralOffset(),
   };
 }
