@@ -322,6 +322,12 @@ def main() -> None:
     ap.add_argument("--tag", default="",
                     help="suffix for the output name so variants don't collide, e.g. --tag teeth -> "
                          "<image>_teeth.zip (distinct zip + inner folder + switcher chip).")
+    ap.add_argument("--bg-color", dest="bg_color", type=float, default=0.0,
+                    help="background the masked input is composited over before reconstruction "
+                         "(0..1). Was 1.0 (WHITE) — that bled white into soft hair edges/crown so "
+                         "light hair baked a white halo/crown. 0.0 (BLACK, default) makes edges fade "
+                         "to dark instead, killing the artifact on a dark viewer. Raise to ~0.1-0.2 "
+                         "if pure black drifts from LAM's training distribution and hurts the recon.")
     args = ap.parse_args()
 
     add_teeth = not args.no_teeth
@@ -402,8 +408,10 @@ def main() -> None:
     mask_path = os.path.join(output_dir, "fg_masks/00000_00.png")
 
     aspect_standard = 1.0 / 1.0
+    # bg_color: the masked-out region (incl. soft hair-edge/crown pixels) is filled with this.
+    # 1.0 (white) bled a white crown into light hair; default 0.0 (black) fades edges to dark.
     image, _, _, shape_param = preprocess_image(
-        image_path, mask_path=mask_path, intr=None, pad_ratio=0, bg_color=1.0,
+        image_path, mask_path=mask_path, intr=None, pad_ratio=0, bg_color=args.bg_color,
         max_tgt_size=None, aspect_standard=aspect_standard, enlarge_ratio=[1.0, 1.0],
         render_tgt_size=cfg.source_size, multiply=14, need_mask=True, get_shape_param=True,
     )
@@ -428,7 +436,7 @@ def main() -> None:
     src = image_path.split("/")[-3]
     driven = motion_seqs_dir.split("/")[-2]
     motion_seq = prepare_motion_seqs(
-        motion_seqs_dir, None, save_root=tmp_dir, fps=30, bg_color=1.0,
+        motion_seqs_dir, None, save_root=tmp_dir, fps=30, bg_color=args.bg_color,
         aspect_standard=aspect_standard, enlarge_ratio=[1.0, 1, 0],
         render_image_res=cfg.render_size, multiply=16, need_mask=False,
         vis_motion=False, shape_param=shape_param, test_sample=False,
