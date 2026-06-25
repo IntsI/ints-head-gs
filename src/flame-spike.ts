@@ -91,6 +91,8 @@ async function main() {
       u.uKernel2D.value = (window as Any).__SPLAT_KERNEL ?? 0.3;
       u.uMaxSize.value = (window as Any).__SPLAT_MAXSIZE ?? 1024;
       u.uTraceCut.value = (window as Any).__SPLAT_TRACECUT ?? 0.0001;
+      u.uWhiteCut.value = (window as Any).__SPLAT_WHITECUT ?? 0.0;
+      u.uWhiteLum.value = (window as Any).__SPLAT_WHITELUM ?? 0.6;
     }
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
@@ -194,6 +196,8 @@ function buildHaloControls(panel: HTMLElement) {
   const sk = parseFloat(localStorage.getItem("splatKernel") || ""); if (!isNaN(sk)) W.__SPLAT_KERNEL = sk;
   const sm = parseFloat(localStorage.getItem("splatMaxSize") || ""); if (!isNaN(sm)) W.__SPLAT_MAXSIZE = sm;
   const st = parseFloat(localStorage.getItem("splatTraceCut") || ""); if (!isNaN(st)) W.__SPLAT_TRACECUT = st;
+  const sw = parseFloat(localStorage.getItem("splatWhiteCut") || ""); if (!isNaN(sw)) W.__SPLAT_WHITECUT = sw;
+  const swl = parseFloat(localStorage.getItem("splatWhiteLum") || ""); if (!isNaN(swl)) W.__SPLAT_WHITELUM = swl;
   const wrap = document.createElement("div");
   const grp = document.createElement("div"); grp.className = "grp"; grp.textContent = "Render · hair halo"; wrap.appendChild(grp);
   const mk = (label: string, gkey: string, lkey: string, min: number, max: number, step: number, def: number, dec: number) => {
@@ -213,6 +217,11 @@ function buildHaloControls(panel: HTMLElement) {
   // very biggest edge splats shrink (face safer); lower = catches more. Measured sweet
   // spot ~0.0001 for nansija (spares ~96% of face core). Raise if the face thins.
   mk("edge gate (3D size)", "__SPLAT_TRACECUT", "splatTraceCut", 0.00002, 0.0004, 0.00001, 0.0001, 5);
+  // THE WHITE LEVER: the hair-rim glow is faint WHITE splats (not big ones — size can't
+  // touch it). This culls splats that are whitish AND fainter than the cut. 0 = off; raise
+  // until the white rim is gone. If it eats colored hair/skin, lower it or raise "white = ".
+  mk("white-glow cull (alpha)", "__SPLAT_WHITECUT", "splatWhiteCut", 0.0, 0.5, 0.01, 0.0, 2);
+  mk("  ↳ white = luma >", "__SPLAT_WHITELUM", "splatWhiteLum", 0.4, 0.85, 0.01, 0.6, 2);
   mk("glow cull (minAlpha)", "__SPLAT_MINALPHA", "splatMinAlpha", 0.004, 0.15, 0.002, 0.04, 3);
   mk("splat tighten (kernel)", "__SPLAT_KERNEL", "splatKernel", 0.0, 0.4, 0.01, 0.3, 2);
   const h2 = panel.querySelector("h2");

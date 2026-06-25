@@ -96,6 +96,34 @@ const PATCHES = [
     },
   },
   {
+    name: "splat-halo: declare uWhiteCut/uWhiteLum in the shader",
+    marker: "uniform float uWhiteCut;",
+    apply(src) {
+      if (!src.includes("uniform float uTraceCut;")) return null;
+      return src.replace("uniform float uTraceCut;", "uniform float uTraceCut;\n        uniform float uWhiteCut;\n        uniform float uWhiteLum;");
+    },
+  },
+  {
+    name: "splat-halo: white-glow cull — discard faint whitish edge splats (the white rim)",
+    marker: "__SPLAT_WHITECUT__",
+    apply(src) {
+      // The white hair-rim glow is bright-white (low-saturation) FAINT splats — not big
+      // ones, so the size-clamp can't touch it. Cull splats that are whitish (luma>uWhiteLum,
+      // saturation<0.18) AND faint (base alpha < uWhiteCut). Opaque white hair surface and
+      // colored skin survive. uWhiteCut 0 = off (default). SH degree is 0 so vColor here is
+      // the flat per-splat colour; alpha is the base opacity (pre-attenuation).
+      const anchor = "vColor = uintToRGBAVec(sampledCenterColor.r);";
+      if (!src.includes(anchor)) return null;
+      const inject = anchor +
+        "\n            { /*__SPLAT_WHITECUT__*/" +
+        "\n                float _wl = (vColor.r + vColor.g + vColor.b) / 3.0;" +
+        "\n                float _ws = max(max(vColor.r, vColor.g), vColor.b) - min(min(vColor.r, vColor.g), vColor.b);" +
+        "\n                if (uWhiteCut > 0.0 && _wl > uWhiteLum && _ws < 0.18 && vColor.a < uWhiteCut) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }" +
+        "\n            }";
+      return src.replace(anchor, inject);
+    },
+  },
+  {
     name: "splat-halo: trace-gated clamp of giant EDGE splats only (face core untouched)",
     marker: "__SPLAT_MAXSIZE__",
     apply(src) {
@@ -142,6 +170,16 @@ const PATCHES = [
       const m = src.match(re);
       if (!m) return null;
       return src.replace(re, `$1,\n            'uTraceCut': { 'type': 'f', 'value': 0.0001 }$2`);
+    },
+  },
+  {
+    name: "splat-halo: add uWhiteCut/uWhiteLum to the splat material uniforms",
+    marker: "'uWhiteCut':",
+    apply(src) {
+      const re = /('uTraceCut':\s*\{[^}]*\})(\s*\};)/;
+      const m = src.match(re);
+      if (!m) return null;
+      return src.replace(re, `$1,\n            'uWhiteCut': { 'type': 'f', 'value': 0.0 },\n            'uWhiteLum': { 'type': 'f', 'value': 0.6 }$2`);
     },
   },
 ];
