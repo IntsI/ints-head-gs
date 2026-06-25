@@ -196,12 +196,20 @@ function buildPanel(rig: FlameRig): PanelApi {
   const layerSet = (n: string, v: number) => (mode === "neutral" ? rig.setNeutral(n, v) : rig.setMorph(n, v));
 
   // mode bar (inserted at the top of the panel)
-  const modeBar = document.createElement("div"); modeBar.id = "modebar"; modeBar.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0 8px";
+  const modeBar = document.createElement("div"); modeBar.id = "modebar";
+  modeBar.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 10px";
+  const modeLabel = document.createElement("span"); modeLabel.className = "hint"; modeLabel.textContent = "sliders edit →";
   const bNeutral = document.createElement("button"); bNeutral.textContent = "neutral offset";
   const bLive = document.createElement("button"); bLive.textContent = "live bias";
-  const modeHint = document.createElement("span"); modeHint.className = "hint";
-  modeBar.append(bNeutral, bLive, modeHint);
+  const modeHint = document.createElement("span"); modeHint.className = "hint"; modeHint.style.flexBasis = "100%";
+  modeBar.append(modeLabel, bNeutral, bLive, modeHint);
   presetsEl.parentElement!.insertBefore(modeBar, presetsEl);
+  // active mode = yellow, inactive = gray (mode buttons aren't presets, so style explicitly)
+  const styleMode = (b: HTMLButtonElement, on: boolean) => {
+    b.style.background = on ? "#fcd34d" : "#334155";
+    b.style.color = on ? "#0a0c10" : "#e2e8f0";
+    b.style.outline = on ? "2px solid #fde68a" : "none";
+  };
 
   // build grouped sliders (range -1..1)
   const byGroup: Record<string, string[]> = {};
@@ -234,9 +242,11 @@ function buildPanel(rig: FlameRig): PanelApi {
 
   function setMode(m: "neutral" | "live") {
     mode = m;
-    bNeutral.classList.toggle("active", m === "neutral");
-    bLive.classList.toggle("active", m === "live");
-    modeHint.textContent = m === "neutral" ? "sculpt resting face (persists, under everything)" : "transient emotion bias (over living base)";
+    styleMode(bNeutral, m === "neutral");
+    styleMode(bLive, m === "live");
+    modeHint.textContent = m === "neutral"
+      ? "↳ NEUTRAL: sliders sculpt the resting face (static, persists under blink/breath/speech)"
+      : "↳ LIVE: sliders = transient emotion bias over the living base";
     $("resetBtn").textContent = m === "neutral" ? "reset neutral offset" : "reset live bias";
     sync();
   }
