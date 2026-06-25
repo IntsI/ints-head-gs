@@ -41,7 +41,9 @@ def main():
     ap.add_argument('--shell', type=float, default=80.0, help='radius percentile for outer shell')
     ap.add_argument('--cap', type=float, default=0.0035, help='shrinkshell: max world scale per axis')
     ap.add_argument('--tint', type=float, nargs=3, default=[0.69, 0.59, 0.55], help='tintshell: target hair rgb')
-    ap.add_argument('--strength', type=float, default=0.85, help='tintshell: blend toward tint (0..1)')
+    ap.add_argument('--strength', type=float, default=0.85, help='tintshell: max blend toward tint (0..1)')
+    ap.add_argument('--sat-lo', dest='sat_lo', type=float, default=0.04, help='tint: full effect at/below this saturation (pure white)')
+    ap.add_argument('--sat-hi', dest='sat_hi', type=float, default=0.12, help='tint: zero effect at/above this saturation (already blonde/skin)')
     # face-protect box (front-centre skin region kept untinted). nansija defaults; eyes ~y0.022 z0.023
     ap.add_argument('--facez', type=float, default=0.0,   help='tint: protect splats with z > facez (front)')
     ap.add_argument('--facey', type=float, default=0.03,  help='tint: protect splats with y < facey (below hairline)')
@@ -111,17 +113,23 @@ def main():
         hair = np.array(a.tint, dtype=np.float32)
         fidx = [idx['f_dc_0'], idx['f_dc_1'], idx['f_dc_2']]
         cur = rgb[target]
-        # Apply the blonde HUE while PRESERVING each splat's own luminance, so a bright white
-        # highlight becomes light pale-blonde (not flat orange) and midtones become mid-blonde.
-        # tinted = lum * (blondeHue/mean(blondeHue)); then blend toward it by strength.
-        ratio = hair / hair.mean()                       # blonde hue direction, mean-normalised
-        tlum = cur.mean(1, keepdims=True)                # each splat's original luminance
+        scur = sat[target]
+        # FEATHER by whiteness: full tint on pure-white splats (sat<=sat_lo), fading to ZERO on
+        # already-blonde/skin splats (sat>=sat_hi). So only the genuinely white splats move; the
+        # good hair + skin are left exactly as-is (no global cast).
+        w = np.clip((a.sat_hi - scur) / max(a.sat_hi - a.sat_lo, 1e-6), 0.0, 1.0)
+        eff = (a.strength * w)[:, None]
+        # blonde HUE at each splat's OWN luminance (bright white -> light pale-blonde, not orange)
+        ratio = hair / hair.mean()
+        tlum = cur.mean(1, keepdims=True)
         toned = np.clip(tlum * ratio[None, :], 0, 1)
-        new = cur * (1 - a.strength) + toned * a.strength
+        new = cur * (1 - eff) + toned * eff
         rows = np.where(target)[0]
         arr[np.ix_(rows, fidx)] = (new - 0.5) / C0   # rgb -> f_dc (SH deg 0)
-        print(f"tinted {len(rows)} hair splats ({100*target.mean():.1f}%) "
-              f"toward hue {a.tint} (luma-preserving) @ strength {a.strength}")
+        moved = int((w > 0.05).sum())
+        print(f"tinted {moved} truly-white splats (feathered sat {a.sat_lo}->{a.sat_hi}, "
+              f"luma-preserving) toward {a.tint} @ max strength {a.strength}; "
+              f"blonde/skin left untouched")
         new_ply = header + arr.tobytes()
         with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED) as zout:
             for nm in names:
