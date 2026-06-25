@@ -14,6 +14,8 @@ Modes (selection of splats to zero):
   faintwhite   lum>LUM, sat<SAT, opacity<OP            (default; the glow suspects)
   faint        opacity<OP                              (diagnostic: any faint splat)
   white        lum>LUM, sat<SAT                         (all whitish, any opacity)
+  edgewhite    faintwhite AND on outer shell (r>SHELL pct in XY) — kills the glow
+               that bleeds past the silhouette while KEEPING interior strand highlights
 """
 import sys, zipfile, io, struct, math, argparse
 import numpy as np
@@ -36,6 +38,7 @@ def main():
     ap.add_argument('--lum', type=float, default=0.6)
     ap.add_argument('--sat', type=float, default=0.18)
     ap.add_argument('--op', type=float, default=0.3)
+    ap.add_argument('--shell', type=float, default=80.0, help='radius percentile for outer shell')
     a = ap.parse_args()
 
     zin = zipfile.ZipFile(a.inp)
@@ -50,10 +53,20 @@ def main():
     lum = rgb.mean(1)
     sat = rgb.max(1) - rgb.min(1)
 
+    # radius in XY from centroid (silhouette = high radius)
+    xy = arr[:, [idx['x'], idx['y']]]
+    c = np.median(xy, axis=0)
+    r = np.sqrt(((xy - c) ** 2).sum(1))
+    shell = r > np.percentile(r, a.shell)
+
     if a.mode == 'faint':
         mask = op < a.op
     elif a.mode == 'white':
         mask = (lum > a.lum) & (sat < a.sat)
+    elif a.mode == 'shell':                 # decisive: the whole outer boundary, any colour/alpha
+        mask = shell
+    elif a.mode == 'edgewhite':             # faint-white only on the boundary (keep interior)
+        mask = (lum > a.lum) & (sat < a.sat) & (op < a.op) & shell
     else:  # faintwhite
         mask = (lum > a.lum) & (sat < a.sat) & (op < a.op)
 
