@@ -113,12 +113,19 @@ def bake_custom_shape_morphs(v_np, faces, fd: str) -> list:
 
     def gauss(cxx, cyy, czz, rx, ry, rz):
         return np.exp(-(((x - cxx) / rx) ** 2 + ((y - cyy) / ry) ** 2 + ((z - czz) / rz) ** 2))
-    w_lip = gauss(cx, mouthY, frontZ, 0.95 * faceScale, 0.38 * faceScale, 0.95 * faceScale)
+    # CRITICAL: only the OUTER lip surface — vertices whose normal points forward.
+    # Without this the broad region engulfs the teeth + inner-mouth (normals facing
+    # back/in), and inflating those along their normals warps the whole mouth (the
+    # "distorting" the lip morphs did; chinSoften was fine because the chin has no
+    # geometry behind it).
+    frontFace = (Nrm[:, 2] > 0.25).astype(np.float32)
+    # tight Z band on the lip surface (rz small) + front-facing mask
+    w_lip = gauss(cx, mouthY, frontZ, 0.85 * faceScale, 0.34 * faceScale, 0.45 * faceScale) * frontFace
     w_chin = gauss(cx, chinY, frontZ, 1.05 * faceScale, 0.6 * faceScale, 1.05 * faceScale)
     upper = (y >= mouthY).astype(np.float32)
     lower = (y < mouthY).astype(np.float32)
 
-    AMP = 0.12 * faceScale                               # full-slider displacement, scales with head
+    AMP = 0.10 * faceScale                               # full-slider displacement, scales with head
     defs = {
         "lipFullness": v_np + Nrm * (AMP * w_lip)[:, None],
         "upperLipFull": v_np + Nrm * (AMP * w_lip * upper)[:, None],
@@ -130,7 +137,7 @@ def bake_custom_shape_morphs(v_np, faces, fd: str) -> list:
     for name, vd in defs.items():
         trimesh.Trimesh(vertices=vd, faces=faces, process=False).export(os.path.join(bs_dir, f"{name}.obj"))
     print(f"[custom] eyeY={eyeY:.4f} faceScale={faceScale:.4f} mouthY={mouthY:.4f} chinY={chinY:.4f} frontZ={frontZ:.4f}")
-    print(f"[custom] lip verts(w>.5)={int((w_lip>0.5).sum())} chin verts(w>.5)={int((w_chin>0.5).sum())}")
+    print(f"[custom] lip verts(w>.3, front-facing)={int((w_lip>0.3).sum())} chin verts(w>.5)={int((w_chin>0.5).sum())}")
     print(f"[custom] wrote {len(defs)} identity-sculpt morphs: {', '.join(defs)}")
     return list(defs)
 
