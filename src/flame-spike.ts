@@ -183,6 +183,30 @@ type PanelApi = {
   getNeutralOffset(): Record<string, number>;
 };
 
+// Hair-halo render sliders (minAlpha glow cull + kernel2D splat tighten). They set
+// window.__SPLAT_MINALPHA / __SPLAT_KERNEL (the spike tick uploads them to the patched
+// shader uniforms each frame). Persisted to localStorage so tuning survives reload.
+function buildHaloControls(panel: HTMLElement) {
+  const W = window as Any;
+  const sa = parseFloat(localStorage.getItem("splatMinAlpha") || ""); if (!isNaN(sa)) W.__SPLAT_MINALPHA = sa;
+  const sk = parseFloat(localStorage.getItem("splatKernel") || ""); if (!isNaN(sk)) W.__SPLAT_KERNEL = sk;
+  const wrap = document.createElement("div");
+  const grp = document.createElement("div"); grp.className = "grp"; grp.textContent = "Render · hair halo"; wrap.appendChild(grp);
+  const mk = (label: string, gkey: string, lkey: string, min: number, max: number, step: number, def: number, dec: number) => {
+    const cur = W[gkey] ?? def;
+    const row = document.createElement("div"); row.className = "row";
+    const lab = document.createElement("label"); lab.textContent = label; lab.title = gkey;
+    const rng = document.createElement("input"); rng.type = "range"; rng.min = String(min); rng.max = String(max); rng.step = String(step); rng.value = String(cur);
+    const val = document.createElement("span"); val.className = "val"; val.textContent = (+cur).toFixed(dec);
+    rng.addEventListener("input", () => { const v = +rng.value; W[gkey] = v; val.textContent = v.toFixed(dec); localStorage.setItem(lkey, String(v)); });
+    row.append(lab, rng, val); wrap.appendChild(row);
+  };
+  mk("glow cull (minAlpha)", "__SPLAT_MINALPHA", "splatMinAlpha", 0.004, 0.15, 0.002, 0.04, 3);
+  mk("splat tighten (kernel)", "__SPLAT_KERNEL", "splatKernel", 0.0, 0.4, 0.01, 0.3, 2);
+  const h2 = panel.querySelector("h2");
+  if (h2) h2.insertAdjacentElement("afterend", wrap); else panel.prepend(wrap);
+}
+
 function buildPanel(rig: FlameRig): PanelApi {
   const $ = (id: string) => document.getElementById(id)!;
   const slidersEl = $("sliders"), presetsEl = $("presets");
@@ -197,6 +221,10 @@ function buildPanel(rig: FlameRig): PanelApi {
   // for it. Inside compare's iframe → stay hidden (clean side-by-side, head centred).
   const standalone = (() => { try { return window.top === window.self; } catch { return true; } })();
   setOpen(standalone);
+
+  // hair-halo / render sliders — apply to ANY FLAME splat head (drive the patched
+  // uMinAlpha/uKernel2D uniforms via window globals the tick reads). Shown for all heads.
+  buildHaloControls(panelEl);
 
   const morphs = rig.morphList();
   if (!rig.arkitMode || morphs.length === 0) {
