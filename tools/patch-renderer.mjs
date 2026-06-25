@@ -19,6 +19,14 @@
  *   uKernel2D) so they can be dialed LIVE (flame-spike drives them from
  *   window.__SPLAT_MINALPHA / window.__SPLAT_KERNEL). Defaults: minAlpha 0.04,
  *   kernel 0.3.
+ *
+ *   The halo turned out to be the GIANT edge splats, which the antialiased
+ *   attenuation barely touches (for a big splat detOrig/detBlur ≈ 1). The real
+ *   lever is SIZE: after the 2D eigenvalues are solved, discard any splat whose
+ *   screen-space extent (sqrt8*sqrt(eigenValue1)) exceeds uMaxSize. Lowering
+ *   uMaxSize culls the oversized hair-edge splats that form the glow while leaving
+ *   normal-size surface splats alone. Default uMaxSize 1024 (= the stock clamp, so
+ *   no-op until dialed down via window.__SPLAT_MAXSIZE).
  */
 import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 
@@ -70,6 +78,23 @@ const PATCHES = [
     },
   },
   {
+    name: "splat-halo: declare uMaxSize in the shader",
+    marker: "uniform float uMaxSize;",
+    apply(src) {
+      if (!src.includes("uniform float uKernel2D;")) return null;
+      return src.replace("uniform float uKernel2D;", "uniform float uKernel2D;\n        uniform float uMaxSize;");
+    },
+  },
+  {
+    name: "splat-halo: size-discard oversized edge splats (kills the halo)",
+    marker: "__SPLAT_MAXSIZE__",
+    apply(src) {
+      const anchor = "if (eigenValue2 <= 0.0) return;";
+      if (!src.includes(anchor)) return null;
+      return src.replace(anchor, anchor + "\n            if (sqrt8 * sqrt(eigenValue1) > uMaxSize) return; /*__SPLAT_MAXSIZE__*/");
+    },
+  },
+  {
     name: "splat-halo: add uMinAlpha/uKernel2D to the splat material uniforms",
     marker: "'uMinAlpha':",
     apply(src) {
@@ -77,6 +102,16 @@ const PATCHES = [
       const m = src.match(re);
       if (!m) return null;
       return src.replace(re, `$1,\n            'uMinAlpha': { 'type': 'f', 'value': 0.04 },\n            'uKernel2D': { 'type': 'f', 'value': 0.3 }$2`);
+    },
+  },
+  {
+    name: "splat-halo: add uMaxSize to the splat material uniforms",
+    marker: "'uMaxSize':",
+    apply(src) {
+      const re = /('uKernel2D':\s*\{[^}]*\})(\s*\};)/;
+      const m = src.match(re);
+      if (!m) return null;
+      return src.replace(re, `$1,\n            'uMaxSize': { 'type': 'f', 'value': 1024.0 }$2`);
     },
   },
 ];

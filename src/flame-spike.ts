@@ -89,6 +89,7 @@ async function main() {
     if (u?.uMinAlpha) {
       u.uMinAlpha.value = (window as Any).__SPLAT_MINALPHA ?? 0.04;
       u.uKernel2D.value = (window as Any).__SPLAT_KERNEL ?? 0.3;
+      u.uMaxSize.value = (window as Any).__SPLAT_MAXSIZE ?? 1024;
     }
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
@@ -190,6 +191,7 @@ function buildHaloControls(panel: HTMLElement) {
   const W = window as Any;
   const sa = parseFloat(localStorage.getItem("splatMinAlpha") || ""); if (!isNaN(sa)) W.__SPLAT_MINALPHA = sa;
   const sk = parseFloat(localStorage.getItem("splatKernel") || ""); if (!isNaN(sk)) W.__SPLAT_KERNEL = sk;
+  const sm = parseFloat(localStorage.getItem("splatMaxSize") || ""); if (!isNaN(sm)) W.__SPLAT_MAXSIZE = sm;
   const wrap = document.createElement("div");
   const grp = document.createElement("div"); grp.className = "grp"; grp.textContent = "Render · hair halo"; wrap.appendChild(grp);
   const mk = (label: string, gkey: string, lkey: string, min: number, max: number, step: number, def: number, dec: number) => {
@@ -201,6 +203,9 @@ function buildHaloControls(panel: HTMLElement) {
     rng.addEventListener("input", () => { const v = +rng.value; W[gkey] = v; val.textContent = v.toFixed(dec); localStorage.setItem(lkey, String(v)); });
     row.append(lab, rng, val); wrap.appendChild(row);
   };
+  // PRIMARY halo lever: cull oversized hair-edge splats. Drag DOWN from 1024 until
+  // the glow disappears (then back off if the hair silhouette starts thinning).
+  mk("hair-edge cull (max size)", "__SPLAT_MAXSIZE", "splatMaxSize", 4, 1024, 2, 1024, 0);
   mk("glow cull (minAlpha)", "__SPLAT_MINALPHA", "splatMinAlpha", 0.004, 0.15, 0.002, 0.04, 3);
   mk("splat tighten (kernel)", "__SPLAT_KERNEL", "splatKernel", 0.0, 0.4, 0.01, 0.3, 2);
   const h2 = panel.querySelector("h2");
