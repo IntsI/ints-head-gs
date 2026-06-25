@@ -73,6 +73,68 @@ ARKIT_52 = [
 ]
 
 
+# Custom IDENTITY-correction blendshapes (not ARKit — ARKit is expression-only).
+# Procedural vertex displacements over the lip/chin region so the live panel can
+# sculpt the baked neutral (lip fullness/width, chin point) the FLAME shape can't.
+# EXPERIMENTAL — regions are anchored to eye/jaw positions from bone_tree.json and
+# scaled by eye-separation (robust across heads), with smooth Gaussian weights (no
+# seams). Signed -1..1 in the panel (e.g. lipFullness negative = thinner). Tune the
+# AMP/offset constants below if a morph grabs the wrong area (counts are printed).
+CUSTOM_SHAPE_MORPHS = True  # set False to bake ARKit-only
+
+def bake_custom_shape_morphs(v_np, faces, fd: str) -> list:
+    import json
+    import numpy as np
+    import trimesh
+
+    # anchors from bone_tree.json (eyes + jaw), written by save_h5_info
+    bt = json.load(open(os.path.join(fd, "bone_tree.json")))
+    def find(node, name):
+        if node.get("name") == name: return node["position"]
+        for c in node.get("children", []):
+            r = find(c, name)
+            if r: return r
+        return None
+    root = bt["bones"][0]
+    le, re_, jaw = find(root, "leftEye"), find(root, "rightEye"), find(root, "jaw")
+    eyeY = (le[1] + re_[1]) / 2.0
+    faceScale = max(1e-4, abs(le[0] - re_[0]))           # eye separation ≈ face width unit
+    cx = (le[0] + re_[0]) / 2.0
+
+    mesh = trimesh.Trimesh(vertices=v_np, faces=faces, process=False)
+    Nrm = np.asarray(mesh.vertex_normals)
+    x, y, z = v_np[:, 0], v_np[:, 1], v_np[:, 2]
+
+    mouthY = eyeY - 1.3 * faceScale                      # mouth ≈ 1.3 eye-seps below eyes
+    chinY = eyeY - 2.2 * faceScale
+    # front z near the mouth band (lips protrude): max z of central, mouth-height verts
+    band = (np.abs(y - mouthY) < 0.5 * faceScale) & (np.abs(x - cx) < faceScale) & (z > 0)
+    frontZ = float(np.percentile(z[band], 90)) if band.any() else float(z.max())
+
+    def gauss(cxx, cyy, czz, rx, ry, rz):
+        return np.exp(-(((x - cxx) / rx) ** 2 + ((y - cyy) / ry) ** 2 + ((z - czz) / rz) ** 2))
+    w_lip = gauss(cx, mouthY, frontZ, 0.95 * faceScale, 0.38 * faceScale, 0.95 * faceScale)
+    w_chin = gauss(cx, chinY, frontZ, 1.05 * faceScale, 0.6 * faceScale, 1.05 * faceScale)
+    upper = (y >= mouthY).astype(np.float32)
+    lower = (y < mouthY).astype(np.float32)
+
+    AMP = 0.12 * faceScale                               # full-slider displacement, scales with head
+    defs = {
+        "lipFullness": v_np + Nrm * (AMP * w_lip)[:, None],
+        "upperLipFull": v_np + Nrm * (AMP * w_lip * upper)[:, None],
+        "lowerLipFull": v_np + Nrm * (AMP * w_lip * lower)[:, None],
+        "lipWiden": v_np + np.stack([np.sign(x - cx) * AMP * w_lip, np.zeros_like(y), np.zeros_like(z)], 1),
+        "chinSoften": v_np + np.stack([np.zeros_like(x), 0.6 * AMP * w_chin, -AMP * w_chin], 1),
+    }
+    bs_dir = os.path.join(fd, "bs")
+    for name, vd in defs.items():
+        trimesh.Trimesh(vertices=vd, faces=faces, process=False).export(os.path.join(bs_dir, f"{name}.obj"))
+    print(f"[custom] eyeY={eyeY:.4f} faceScale={faceScale:.4f} mouthY={mouthY:.4f} chinY={chinY:.4f} frontZ={frontZ:.4f}")
+    print(f"[custom] lip verts(w>.5)={int((w_lip>0.5).sum())} chin verts(w>.5)={int((w_chin>0.5).sum())}")
+    print(f"[custom] wrote {len(defs)} identity-sculpt morphs: {', '.join(defs)}")
+    return list(defs)
+
+
 def write_arkit_morphs(arkit_model, shape_param, faces, fd: str) -> int:
     """EXPERIMENTAL — replace the PCA expr morphs with the 52 ARKit blendshape
     morphs (named bs/<arkitName>.obj incl. eyeBlinkLeft/Right), so the GLB carries
@@ -109,6 +171,11 @@ def write_arkit_morphs(arkit_model, shape_param, faces, fd: str) -> int:
         v_e = v_shaped + blend_shapes(e, m.shapedirs_up[:, :, n_shape:])
         trimesh.Trimesh(vertices=v_e.squeeze(0).cpu().numpy(), faces=faces).export(os.path.join(bs_dir, f"{name}.obj"))
     print(f"[arkit] wrote 52 ARKit blendshape morphs (bs/<name>.obj), incl. eyeBlinkLeft/Right")
+    if CUSTOM_SHAPE_MORPHS:
+        try:
+            bake_custom_shape_morphs(v_shaped.squeeze(0).cpu().numpy(), faces, fd)
+        except Exception as e:
+            print(f"[custom] WARNING: identity-sculpt morphs skipped ({e}) — ARKit-only head")
     return 0
 
 

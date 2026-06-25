@@ -158,6 +158,8 @@ async function main() {
 // Both compose OVER the living base (breath/blink/gaze) and speech. Negatives
 // allowed (sliders -1..1) for sculpting. ARKit heads only.
 const GROUPS: [string, RegExp][] = [
+  // custom identity-sculpt morphs (lipFullness/chinSoften/…) — bake-added, not ARKit
+  ["Sculpt (identity)", /^(lip|chin|upperLip|lowerLip)/],
   ["Eyes", /^eye/], ["Brows", /^brow/], ["Cheeks", /^cheek/],
   ["Nose", /^nose/], ["Jaw", /^jaw/], ["Mouth", /^mouth/], ["Tongue", /^tongue/],
 ];
@@ -214,7 +216,7 @@ function buildPanel(rig: FlameRig): PanelApi {
   // build grouped sliders (range -1..1)
   const byGroup: Record<string, string[]> = {};
   for (const n of morphs) (byGroup[groupOf(n)] ??= []).push(n);
-  const order = ["Eyes", "Brows", "Cheeks", "Nose", "Jaw", "Mouth", "Tongue", "Other"];
+  const order = ["Sculpt (identity)", "Eyes", "Brows", "Cheeks", "Nose", "Jaw", "Mouth", "Tongue", "Other"];
   const els: Record<string, { rng: HTMLInputElement; val: HTMLElement }> = {};
   let currentPreset = "";
   const clearActive = () => { currentPreset = ""; [...presetsEl.children].forEach((b) => b.classList.remove("active")); };

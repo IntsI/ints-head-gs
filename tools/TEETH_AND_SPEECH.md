@@ -518,3 +518,18 @@ validate. Source pointers: `flame_arkit.py:108,124-133`; A2E `models/utils.py:13
 > patch (`tools/patch-renderer.mjs`, postinstall; NOT committed). That patch is the
 > only renderer change needed — productionizing just needs `useFlame` exposed (a
 > one-line vendor/fork), **not** a morph-deform fix.
+
+### Identity-sculpt morphs (custom) — correcting the baked neutral mouth/chin
+ARKit-52 is expression-only; lip **fullness/width**, cupid's bow, and **chin shape**
+are FLAME *identity* (baked from the shape betas), so no ARKit morph touches them.
+`colab_bake_flame.py --arkit` therefore also bakes a small set of **custom geometric
+blendshapes** (`bake_custom_shape_morphs`): `lipFullness`, `upperLipFull`,
+`lowerLipFull`, `lipWiden`, `chinSoften` — procedural per-vertex displacements over
+the lip/chin region (region anchored to eye/jaw from `bone_tree.json`, scaled by
+eye-separation, smooth Gaussian weights, no seams). They land as named morph targets
+alongside the 52 ARKit, so the rig auto-detects them and the panel shows them under a
+**"Sculpt (identity)"** group at the top. Drive them in **neutral offset** mode
+(signed −1..1) to correct the resting face; `__flame.getNeutralOffset()` saves the
+recipe per avatar. EXPERIMENTAL — the bake prints region centres + vertex counts;
+tune the `AMP`/offset constants if a morph grabs the wrong area. (Needs a re-bake;
+existing `*_arkit.zip` heads don't carry them.)
