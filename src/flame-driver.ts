@@ -69,6 +69,14 @@ export interface FlameRig {
   getMorph(name: string): number;
   /** Clear all manual morph bias → back to the pure living base. */
   resetMorphs(): void;
+  // --- neutral offset: a STATIC baseline pose applied at rest, UNDER the living
+  //     base + manual. For hand-correcting the baked neutral (mouth/chin). ---
+  setNeutral(name: string, value: number): void;
+  getNeutral(name: string): number;
+  /** Replace the whole neutral-offset recipe (e.g. a saved per-avatar correction). */
+  setNeutralOffset(map: Record<string, number>): void;
+  getNeutralOffset(): Record<string, number>;
+  resetNeutral(): void;
   // --- calibration helpers (run in console on a loaded FLAME head) ---
   zeroExpr(): void;
   /** Set a single FLAME component to weight w (zeros the rest). For sweeping. */
@@ -238,7 +246,8 @@ export function createFlameRig(renderer: Any): FlameRig {
   // head sway clock + eased cursor
   let cYaw = 0, cPitch = 0, tYaw = 0, tPitch = 0;
   let exprPaused = false; // calibration: hold expr so a sweep isn't wiped each tick
-  const manual: Record<string, number> = {}; // manual control-panel bias (ARKit mode)
+  const manual: Record<string, number> = {};  // manual control-panel bias (ARKit mode)
+  const neutral: Record<string, number> = {}; // static neutral-offset correction (under everything)
 
   // Renderer keys bsWeight by morph NAME (for key in bsWeight → morphTargetDictionary[key])
   // and updateBoneMatrixTexture mutates in place, so we MUST emit ALL exprN keys
@@ -316,9 +325,10 @@ export function createFlameRig(renderer: Any): FlameRig {
           // (0 default) to clear stale weights.
           const e: Record<string, number> = {};
           for (const name of morphNames) {
-            // autonomous (blink/emotion/visemes) minus bone-driven, + manual bias
+            // neutral correction (static) + autonomous (blink/emotion/visemes,
+            // minus bone-driven) + manual bias. Allow small negatives for sculpting.
             const auto = BONE_DRIVEN.has(name) ? 0 : (ark[name] ?? 0);
-            e[name] = clamp(auto + (manual[name] ?? 0), 0, 1);
+            e[name] = clamp((neutral[name] ?? 0) + auto + (manual[name] ?? 0), -1, 1);
           }
           fp.expr[0] = e;
         } else {
@@ -359,6 +369,14 @@ export function createFlameRig(renderer: Any): FlameRig {
     setMorph(name, value) { if (value) manual[name] = value; else delete manual[name]; },
     getMorph(name) { return manual[name] ?? 0; },
     resetMorphs() { for (const k of Object.keys(manual)) delete manual[k]; },
+    setNeutral(name, value) { if (value) neutral[name] = value; else delete neutral[name]; },
+    getNeutral(name) { return neutral[name] ?? 0; },
+    setNeutralOffset(map) {
+      for (const k of Object.keys(neutral)) delete neutral[k];
+      for (const k in map) if (map[k]) neutral[k] = map[k];
+    },
+    getNeutralOffset() { return { ...neutral }; },
+    resetNeutral() { for (const k of Object.keys(neutral)) delete neutral[k]; },
 
     zeroExpr() { if (ok) fp.expr[0] = newExpr(); },
     setExprComp(comp, w) {

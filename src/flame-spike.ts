@@ -143,25 +143,39 @@ async function main() {
     reset: () => panel.reset(),
     morphs: () => rig.morphList(),
     presets: () => Object.keys(RECIPES),
+    // neutral-offset correction (per-avatar; save the returned recipe):
+    //   __flame.setNeutralOffset({ mouthClose: 0.2, jawForward: -0.1, … })
+    setNeutralOffset: (map: Record<string, number>) => panel.setNeutralOffset(map),
+    getNeutralOffset: () => panel.getNeutralOffset(),
   };
 }
 
 // ---- live control panel ----------------------------------------------------
-// Sliders for every ARKit morph the head carries (grouped) + emotion presets
-// (RECIPES from driver.ts) with an intensity scale. All compose as manual BIAS
-// over the living base (breath/blink/gaze) via rig.setMorph. ARKit heads only.
+// Sliders for every ARKit morph (grouped), emotion presets, and a two-layer model:
+//   • NEUTRAL mode → sliders edit the STATIC neutral-offset (resting correction:
+//     sculpt the baked mouth/chin toward the real face). Persists at rest.
+//   • LIVE mode    → sliders edit transient manual bias (emotion experimentation).
+// Both compose OVER the living base (breath/blink/gaze) and speech. Negatives
+// allowed (sliders -1..1) for sculpting. ARKit heads only.
 const GROUPS: [string, RegExp][] = [
   ["Eyes", /^eye/], ["Brows", /^brow/], ["Cheeks", /^cheek/],
   ["Nose", /^nose/], ["Jaw", /^jaw/], ["Mouth", /^mouth/], ["Tongue", /^tongue/],
 ];
 const groupOf = (n: string) => GROUPS.find(([, re]) => re.test(n))?.[0] ?? "Other";
-const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const clampW = (v: number) => (v < -1 ? -1 : v > 1 ? 1 : v);
 
-function buildPanel(rig: FlameRig) {
+type PanelApi = {
+  setMorph(n: string, v: number): void;
+  preset(n: string, intensity?: number): void;
+  reset(): void;
+  setNeutralOffset(map: Record<string, number>): void;
+  getNeutralOffset(): Record<string, number>;
+};
+
+function buildPanel(rig: FlameRig): PanelApi {
   const $ = (id: string) => document.getElementById(id)!;
   const slidersEl = $("sliders"), presetsEl = $("presets");
   const intensityEl = $("intensity") as HTMLInputElement, intensityVal = $("intensityVal");
-  // panel show/hide toggle (works regardless of mode)
   const panelEl = $("panel"), toggle = $("panelToggle");
   toggle.addEventListener("click", () => {
     const hidden = panelEl.classList.toggle("hidden");
@@ -173,10 +187,23 @@ function buildPanel(rig: FlameRig) {
     slidersEl.innerHTML = '<div class="hint">No ARKit morphs on this head (PCA expr basis). ' +
       'Bake with <code>--arkit</code> to get the 52 named blendshapes + this panel.</div>';
     const noop = () => console.warn("[panel] not an ARKit head — no morphs to drive");
-    return { setMorph: noop, preset: noop, reset: noop };
+    return { setMorph: noop, preset: noop, reset: noop, setNeutralOffset: noop, getNeutralOffset: () => ({}) };
   }
 
-  // build grouped sliders
+  // ---- mode: which layer the sliders edit (default NEUTRAL — the primary goal) ----
+  let mode: "neutral" | "live" = "neutral";
+  const layerGet = (n: string) => (mode === "neutral" ? rig.getNeutral(n) : rig.getMorph(n));
+  const layerSet = (n: string, v: number) => (mode === "neutral" ? rig.setNeutral(n, v) : rig.setMorph(n, v));
+
+  // mode bar (inserted at the top of the panel)
+  const modeBar = document.createElement("div"); modeBar.id = "modebar"; modeBar.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0 8px";
+  const bNeutral = document.createElement("button"); bNeutral.textContent = "neutral offset";
+  const bLive = document.createElement("button"); bLive.textContent = "live bias";
+  const modeHint = document.createElement("span"); modeHint.className = "hint";
+  modeBar.append(bNeutral, bLive, modeHint);
+  presetsEl.parentElement!.insertBefore(modeBar, presetsEl);
+
+  // build grouped sliders (range -1..1)
   const byGroup: Record<string, string[]> = {};
   for (const n of morphs) (byGroup[groupOf(n)] ??= []).push(n);
   const order = ["Eyes", "Brows", "Cheeks", "Nose", "Jaw", "Mouth", "Tongue", "Other"];
@@ -193,22 +220,35 @@ function buildPanel(rig: FlameRig) {
       const row = document.createElement("div"); row.className = "row";
       const lab = document.createElement("label"); lab.textContent = name; lab.title = name;
       const rng = document.createElement("input");
-      rng.type = "range"; rng.min = "0"; rng.max = "1"; rng.step = "0.01"; rng.value = "0";
+      rng.type = "range"; rng.min = "-1"; rng.max = "1"; rng.step = "0.01"; rng.value = "0";
       const val = document.createElement("span"); val.className = "val"; val.textContent = "0.00";
       rng.addEventListener("input", () => {
-        const v = +rng.value; rig.setMorph(name, v); val.textContent = v.toFixed(2); clearActive();
+        const v = +rng.value; layerSet(name, v); val.textContent = v.toFixed(2);
+        if (mode === "live") clearActive();
       });
       row.append(lab, rng, val); slidersEl.appendChild(row);
       els[name] = { rng, val };
     }
   }
-  const sync = () => { for (const n in els) { const v = rig.getMorph(n); els[n].rng.value = String(v); els[n].val.textContent = v.toFixed(2); } };
+  const sync = () => { for (const n in els) { const v = layerGet(n); els[n].rng.value = String(v); els[n].val.textContent = v.toFixed(2); } };
 
-  // emotion presets (RECIPES = the v1 ARKit vocabulary), scaled by intensity
+  function setMode(m: "neutral" | "live") {
+    mode = m;
+    bNeutral.classList.toggle("active", m === "neutral");
+    bLive.classList.toggle("active", m === "live");
+    modeHint.textContent = m === "neutral" ? "sculpt resting face (persists, under everything)" : "transient emotion bias (over living base)";
+    $("resetBtn").textContent = m === "neutral" ? "reset neutral offset" : "reset live bias";
+    sync();
+  }
+  bNeutral.addEventListener("click", () => setMode("neutral"));
+  bLive.addEventListener("click", () => setMode("live"));
+
+  // emotion presets → always LIVE bias (transient); clicking one flips to live mode
   function applyPreset(name: string, intensity: number) {
+    setMode("live");
     rig.resetMorphs();
     const recipe = (RECIPES as Record<string, Record<string, number>>)[name] ?? {};
-    for (const k in recipe) rig.setMorph(k, clamp01(recipe[k] * intensity));
+    for (const k in recipe) rig.setMorph(k, clampW(recipe[k] * intensity));
     currentPreset = name; sync();
     [...presetsEl.children].forEach((b) => b.classList.toggle("active", (b as HTMLElement).dataset.name === name));
   }
@@ -222,12 +262,19 @@ function buildPanel(rig: FlameRig) {
     intensityVal.textContent = (+intensityEl.value).toFixed(2);
     if (currentPreset) applyPreset(currentPreset, +intensityEl.value);
   });
-  $("resetBtn").addEventListener("click", () => { rig.resetMorphs(); clearActive(); sync(); });
+  $("resetBtn").addEventListener("click", () => {
+    if (mode === "neutral") rig.resetNeutral(); else { rig.resetMorphs(); clearActive(); }
+    sync();
+  });
+  setMode("neutral"); // default
 
+  const reflect = (n: string, v: number) => { if (els[n]) { els[n].rng.value = String(v); els[n].val.textContent = (+v).toFixed(2); } };
   return {
-    setMorph: (n: string, v: number) => { rig.setMorph(n, v); if (els[n]) { els[n].rng.value = String(v); els[n].val.textContent = (+v).toFixed(2); } clearActive(); },
-    preset: (n: string, intensity = 1) => applyPreset(n, intensity),
-    reset: () => { rig.resetMorphs(); clearActive(); sync(); },
+    setMorph: (n, v) => { setMode("live"); rig.setMorph(n, v); reflect(n, v); clearActive(); },
+    preset: (n, intensity = 1) => applyPreset(n, intensity),
+    reset: () => { if (mode === "neutral") rig.resetNeutral(); else { rig.resetMorphs(); clearActive(); } sync(); },
+    setNeutralOffset: (map) => { rig.setNeutralOffset(map); if (mode === "neutral") sync(); console.log("[panel] neutral offset set:", map); },
+    getNeutralOffset: () => rig.getNeutralOffset(),
   };
 }
 

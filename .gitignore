@@ -11,3 +11,5 @@ public/asset/avatars/fisherman*.zip
 # baked FLAME/OAC heads stay local (bakes are gitignored per project rule)
 public/asset/avatars/*_flame.zip
 public/asset/avatars/*_teeth.zip
+public/asset/avatars/nansija*.zip
+public/asset/avatars/*_arkit.zip
