@@ -80,7 +80,7 @@ const PATCHES = [
     },
   },
   {
-    name: "splat-halo: declare uMaxSize in the shader",
+    name: "splat-halo: declare uMaxSize/uTraceCut in the shader",
     marker: "uniform float uMaxSize;",
     apply(src) {
       if (!src.includes("uniform float uKernel2D;")) return null;
@@ -88,16 +88,30 @@ const PATCHES = [
     },
   },
   {
-    name: "splat-halo: clamp giant edge splats to uMaxSize (tightens the halo, no holes)",
+    name: "splat-halo: declare uTraceCut in the shader",
+    marker: "uniform float uTraceCut;",
+    apply(src) {
+      if (!src.includes("uniform float uMaxSize;")) return null;
+      return src.replace("uniform float uMaxSize;", "uniform float uMaxSize;\n        uniform float uTraceCut;");
+    },
+  },
+  {
+    name: "splat-halo: trace-gated clamp of giant EDGE splats only (face core untouched)",
     marker: "__SPLAT_MAXSIZE__",
     apply(src) {
-      // The stock shader already clamps splat screen-size via min(extent, maxScreenSpaceSplatSize).
-      // Point that clamp at the uMaxSize uniform so lowering it SHRINKS the over-spread hair-edge
-      // splats (tightening the glow) WITHOUT deleting them — a hard discard left holes/spikes.
+      // The stock shader clamps splat screen-size via min(extent, maxScreenSpaceSplatSize).
+      // We make it surgical: only the BIG splats (3D covariance trace > uTraceCut — the hair-edge
+      // shell, measured ~5x the face core) get clamped to uMaxSize; everything else uses a huge cap
+      // (no clamp). So lowering uMaxSize SHRINKS only the over-spread edge splats that form the white
+      // glow, while the face core never dots out. trace = M11+M22+M33 of Vrk (rotation/depth-invariant).
       if (!src.includes("min(sqrt8 * sqrt(eigenValue1), ${parseInt(maxScreenSpaceSplatSize)}.0)")) return null;
+      const gate =
+        "float cov3Trace = cov3D_M11_M12_M13.x + cov3D_M22_M23_M33.x + cov3D_M22_M23_M33.z; /*__SPLAT_TRACEGATE__*/\n" +
+        "            float effCap = (cov3Trace > uTraceCut) ? uMaxSize : 100000.0;\n            ";
       return src
-        .replace("min(sqrt8 * sqrt(eigenValue1), ${parseInt(maxScreenSpaceSplatSize)}.0)", "min(sqrt8 * sqrt(eigenValue1), uMaxSize) /*__SPLAT_MAXSIZE__*/")
-        .replace("min(sqrt8 * sqrt(eigenValue2), ${parseInt(maxScreenSpaceSplatSize)}.0)", "min(sqrt8 * sqrt(eigenValue2), uMaxSize)");
+        .replace("vec2 basisVector1 = eigenVector1 * splatScale * min(sqrt8 * sqrt(eigenValue1), ${parseInt(maxScreenSpaceSplatSize)}.0)",
+                 gate + "vec2 basisVector1 = eigenVector1 * splatScale * min(sqrt8 * sqrt(eigenValue1), effCap) /*__SPLAT_MAXSIZE__*/")
+        .replace("min(sqrt8 * sqrt(eigenValue2), ${parseInt(maxScreenSpaceSplatSize)}.0)", "min(sqrt8 * sqrt(eigenValue2), effCap)");
     },
   },
   {
@@ -118,6 +132,16 @@ const PATCHES = [
       const m = src.match(re);
       if (!m) return null;
       return src.replace(re, `$1,\n            'uMaxSize': { 'type': 'f', 'value': 1024.0 }$2`);
+    },
+  },
+  {
+    name: "splat-halo: add uTraceCut to the splat material uniforms",
+    marker: "'uTraceCut':",
+    apply(src) {
+      const re = /('uMaxSize':\s*\{[^}]*\})(\s*\};)/;
+      const m = src.match(re);
+      if (!m) return null;
+      return src.replace(re, `$1,\n            'uTraceCut': { 'type': 'f', 'value': 0.0001 }$2`);
     },
   },
 ];

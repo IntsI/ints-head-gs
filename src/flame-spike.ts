@@ -90,6 +90,7 @@ async function main() {
       u.uMinAlpha.value = (window as Any).__SPLAT_MINALPHA ?? 0.04;
       u.uKernel2D.value = (window as Any).__SPLAT_KERNEL ?? 0.3;
       u.uMaxSize.value = (window as Any).__SPLAT_MAXSIZE ?? 1024;
+      u.uTraceCut.value = (window as Any).__SPLAT_TRACECUT ?? 0.0001;
     }
     setHud(
       `FLAME head (v2) · useFlame:true · ${AVATAR.split("/").pop()}\n` +
@@ -192,6 +193,7 @@ function buildHaloControls(panel: HTMLElement) {
   const sa = parseFloat(localStorage.getItem("splatMinAlpha") || ""); if (!isNaN(sa)) W.__SPLAT_MINALPHA = sa;
   const sk = parseFloat(localStorage.getItem("splatKernel") || ""); if (!isNaN(sk)) W.__SPLAT_KERNEL = sk;
   const sm = parseFloat(localStorage.getItem("splatMaxSize") || ""); if (!isNaN(sm)) W.__SPLAT_MAXSIZE = sm;
+  const st = parseFloat(localStorage.getItem("splatTraceCut") || ""); if (!isNaN(st)) W.__SPLAT_TRACECUT = st;
   const wrap = document.createElement("div");
   const grp = document.createElement("div"); grp.className = "grp"; grp.textContent = "Render · hair halo"; wrap.appendChild(grp);
   const mk = (label: string, gkey: string, lkey: string, min: number, max: number, step: number, def: number, dec: number) => {
@@ -203,12 +205,14 @@ function buildHaloControls(panel: HTMLElement) {
     rng.addEventListener("input", () => { const v = +rng.value; W[gkey] = v; val.textContent = v.toFixed(dec); localStorage.setItem(lkey, String(v)); });
     row.append(lab, rng, val); wrap.appendChild(row);
   };
-  // PRIMARY halo lever: CLAMP (shrink) the splat screen-size. The silhouette/halo
-  // splats are ~2.3x larger than the face-core splats (measured), so there's a thin
-  // window just above the core size where the halo tightens but the face stays solid.
-  // Range tuned low+fine so that window is reachable: ~4 = all dots, ~256 = no-op.
-  // Sweep up from a low value until the face just turns solid; the halo stays tight.
+  // PRIMARY halo lever (trace-GATED): only splats whose 3D size exceeds the gate get
+  // shrunk to this cap — the face core is never touched, so low values no longer dot
+  // the face. Drag DOWN to tighten the white hair glow; ~256 = no-op.
   mk("hair-edge shrink (max size)", "__SPLAT_MAXSIZE", "splatMaxSize", 4, 256, 1, 256, 0);
+  // The GATE: which splats count as "edge" (3D covariance trace). Higher = only the
+  // very biggest edge splats shrink (face safer); lower = catches more. Measured sweet
+  // spot ~0.0001 for nansija (spares ~96% of face core). Raise if the face thins.
+  mk("edge gate (3D size)", "__SPLAT_TRACECUT", "splatTraceCut", 0.00002, 0.0004, 0.00001, 0.0001, 5);
   mk("glow cull (minAlpha)", "__SPLAT_MINALPHA", "splatMinAlpha", 0.004, 0.15, 0.002, 0.04, 3);
   mk("splat tighten (kernel)", "__SPLAT_KERNEL", "splatKernel", 0.0, 0.4, 0.01, 0.3, 2);
   const h2 = panel.querySelector("h2");
