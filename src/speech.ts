@@ -34,21 +34,21 @@ export const VISEMES: Record<string, Arkit> = {
   // f v — lower lip to upper teeth (lower lip up/in). NO mouthUpperUp — on FLAME it
   // flares the nostrils (reads as the nose moving), which doesn't happen for f/v.
   FF: { jawOpen: 0.05, mouthLowerDownLeft: 0.30, mouthLowerDownRight: 0.30, mouthRollLower: 0.26 },
-  // th — tongue tip between teeth, jaw mid
-  TH: { jawOpen: 0.15, tongueOut: 0.30, mouthShrugUpper: 0.08 },
+  // th — tongue tip between teeth, jaw mid (no shrug — it flares the nostrils)
+  TH: { jawOpen: 0.15, tongueOut: 0.30 },
   // d t l n — alveolar; slight tongue, jaw mid
-  DD: { jawOpen: 0.15, tongueOut: 0.12, mouthShrugUpper: 0.06 },
+  DD: { jawOpen: 0.15, tongueOut: 0.12 },
   // k g — velar; small open, no lip shape
   KK: { jawOpen: 0.18, mouthLowerDownLeft: 0.08, mouthLowerDownRight: 0.08 },
-  // ch j sh — rounded, lips forward, small jaw
-  CH: { jawOpen: 0.10, mouthFunnel: 0.46, mouthPucker: 0.34 },
+  // ch j sh — rounded via PUCKER (funnel moves the nose ~2x more, so keep it low)
+  CH: { jawOpen: 0.10, mouthFunnel: 0.18, mouthPucker: 0.34 },
   // s z — narrow, slight spread; very small jaw (cheek kept subtle)
   SS: { jawOpen: 0.05, mouthStretchLeft: 0.24, mouthStretchRight: 0.24,
         mouthSmileLeft: 0.12, mouthSmileRight: 0.12, cheekSquintLeft: 0.05, cheekSquintRight: 0.05 },
   // n ng — nasal, lips close-ish
   NN: { jawOpen: 0.10, mouthClose: 0.24 },
-  // r — rounded
-  RR: { jawOpen: 0.12, mouthFunnel: 0.30, mouthPucker: 0.22 },
+  // r — rounded (pucker-led)
+  RR: { jawOpen: 0.12, mouthFunnel: 0.12, mouthPucker: 0.24 },
 
   // --- vowel shapes ---
   // ah — the one true jaw-opener; relaxed lips
@@ -59,10 +59,10 @@ export const VISEMES: Record<string, Arkit> = {
   // ih — wide-ish, a little more open than ee
   IH: { jawOpen: 0.16, mouthStretchLeft: 0.22, mouthStretchRight: 0.22,
         mouthSmileLeft: 0.14, mouthSmileRight: 0.14, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
-  // oh — rounded + open
-  OH: { jawOpen: 0.30, mouthFunnel: 0.42, mouthPucker: 0.28 },
-  // oo/uw — round, forward, small jaw (a touch of cheek puff)
-  OU: { jawOpen: 0.08, mouthPucker: 0.60, mouthFunnel: 0.50, cheekPuff: 0.05 },
+  // oh — rounded + open (pucker-led, low funnel)
+  OH: { jawOpen: 0.30, mouthFunnel: 0.16, mouthPucker: 0.34 },
+  // oo/uw — round, forward, small jaw (pucker-led; funnel low to spare the nose)
+  OU: { jawOpen: 0.08, mouthPucker: 0.62, mouthFunnel: 0.20, cheekPuff: 0.04 },
 };
 
 /** Every channel any viseme can touch — so the ease can pull unused ones to 0. */
