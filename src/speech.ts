@@ -31,24 +31,25 @@ export const VISEMES: Record<string, Arkit> = {
   // --- consonant classes ---
   // p b m — lips fully meet, jaw closed
   PP: { mouthClose: 0.62, mouthPressLeft: 0.30, mouthPressRight: 0.30 },
-  // f v — lower lip to upper teeth (lower lip up/in). NO mouthUpperUp — on FLAME it
-  // flares the nostrils (reads as the nose moving), which doesn't happen for f/v.
-  FF: { jawOpen: 0.05, mouthLowerDownLeft: 0.30, mouthLowerDownRight: 0.30, mouthRollLower: 0.26 },
+  // f v — lower lip to upper teeth (lower lip down a touch). NO mouthRollLower — on
+  // FLAME it everts the inner lip into a visible SECOND lip edge during speech.
+  FF: { jawOpen: 0.05, mouthLowerDownLeft: 0.26, mouthLowerDownRight: 0.26 },
   // th — tongue tip between teeth, jaw mid (no shrug — it flares the nostrils)
   TH: { jawOpen: 0.15, tongueOut: 0.30 },
   // d t l n — alveolar; slight tongue, jaw mid
   DD: { jawOpen: 0.15, tongueOut: 0.12 },
   // k g — velar; small open, no lip shape
   KK: { jawOpen: 0.18, mouthLowerDownLeft: 0.08, mouthLowerDownRight: 0.08 },
-  // ch j sh — rounded via PUCKER (funnel moves the nose ~2x more, so keep it low)
-  CH: { jawOpen: 0.10, mouthFunnel: 0.18, mouthPucker: 0.34 },
+  // ch j sh — rounded via PUCKER only. NO mouthFunnel — funnel + pucker together make
+  // a doubled lip-ring (two lip edges) on FLAME during speech.
+  CH: { jawOpen: 0.10, mouthPucker: 0.42 },
   // s z — narrow, slight spread; very small jaw (corners kept modest)
   SS: { jawOpen: 0.05, mouthStretchLeft: 0.18, mouthStretchRight: 0.18,
         mouthSmileLeft: 0.08, mouthSmileRight: 0.08, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
   // n ng — nasal, lips close-ish
   NN: { jawOpen: 0.10, mouthClose: 0.24 },
-  // r — rounded (pucker-led)
-  RR: { jawOpen: 0.12, mouthFunnel: 0.12, mouthPucker: 0.24 },
+  // r — rounded (pucker only; no funnel → no double lip-ring)
+  RR: { jawOpen: 0.12, mouthPucker: 0.30 },
 
   // --- vowel shapes ---
   // ah — the one true jaw-opener; relaxed lips
@@ -59,10 +60,10 @@ export const VISEMES: Record<string, Arkit> = {
   // ih — wide-ish, a little more open than ee
   IH: { jawOpen: 0.16, mouthStretchLeft: 0.16, mouthStretchRight: 0.16,
         mouthSmileLeft: 0.08, mouthSmileRight: 0.08, cheekSquintLeft: 0.03, cheekSquintRight: 0.03 },
-  // oh — rounded + open (pucker-led, low funnel)
-  OH: { jawOpen: 0.30, mouthFunnel: 0.16, mouthPucker: 0.34 },
-  // oo/uw — round, forward, small jaw (pucker-led; funnel low to spare the nose)
-  OU: { jawOpen: 0.08, mouthPucker: 0.62, mouthFunnel: 0.20, cheekPuff: 0.04 },
+  // oh — rounded + open (jaw gives the openness, pucker the rounding; no funnel)
+  OH: { jawOpen: 0.30, mouthPucker: 0.42 },
+  // oo/uw — round, forward, small jaw (pucker only; no funnel → no double lip-ring)
+  OU: { jawOpen: 0.08, mouthPucker: 0.66, cheekPuff: 0.04 },
 };
 
 /** Every channel any viseme can touch — so the ease can pull unused ones to 0. */
@@ -179,7 +180,7 @@ export function createSpeech(): SpeechHandle {
   const TAIL = 0.18;     // keep easing toward sil this long after the last segment
   // anticipation: in the last (1-ANTIC_AT) of a segment, start blending toward the
   // NEXT viseme up to ANTIC_MAX — the mouth pre-forms the next sound (co-articulation).
-  const ANTIC_AT = 0.6, ANTIC_MAX = 0.4;
+  const ANTIC_AT = 0.6, ANTIC_MAX = 0.22;
 
   function lerpVis(a: Arkit, b: Arkit, t: number): Arkit {
     if (t <= 0) return a; if (t >= 1) return b;
