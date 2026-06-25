@@ -39,6 +39,7 @@ def main():
     ap.add_argument('--sat', type=float, default=0.18)
     ap.add_argument('--op', type=float, default=0.3)
     ap.add_argument('--shell', type=float, default=80.0, help='radius percentile for outer shell')
+    ap.add_argument('--cap', type=float, default=0.0035, help='shrinkshell: max world scale per axis')
     a = ap.parse_args()
 
     zin = zipfile.ZipFile(a.inp)
@@ -67,6 +68,24 @@ def main():
         mask = shell
     elif a.mode == 'edgewhite':             # faint-white only on the boundary (keep interior)
         mask = (lum > a.lum) & (sat < a.sat) & (op < a.op) & shell
+    elif a.mode == 'shrinkshell':
+        # THE FIX: don't delete boundary splats — SHRINK them. Clamp each scale axis of the
+        # outer-shell splats so exp(scale) <= cap, so they stop spreading past the silhouette
+        # (kills the soft glow) while still rendering the hair edge. Keeps the head intact.
+        sidx = [idx['scale_0'], idx['scale_1'], idx['scale_2']]
+        capln = math.log(a.cap)
+        sub = arr[np.ix_(shell, sidx)]
+        before = float(np.exp(sub).max())
+        sub = np.minimum(sub, capln)
+        arr[np.ix_(shell, sidx)] = sub
+        print(f"shrank {int(shell.sum())} shell splats ({100*shell.mean():.1f}%): "
+              f"max axis {before:.4f} -> cap {a.cap}")
+        new_ply = header + arr.tobytes()
+        with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for nm in names:
+                zout.writestr(nm, new_ply if nm == ply_name else zin.read(nm))
+        print(f"wrote {a.out}")
+        return
     else:  # faintwhite
         mask = (lum > a.lum) & (sat < a.sat) & (op < a.op)
 
