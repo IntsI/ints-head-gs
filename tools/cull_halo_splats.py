@@ -42,6 +42,10 @@ def main():
     ap.add_argument('--cap', type=float, default=0.0035, help='shrinkshell: max world scale per axis')
     ap.add_argument('--tint', type=float, nargs=3, default=[0.69, 0.59, 0.55], help='tintshell: target hair rgb')
     ap.add_argument('--strength', type=float, default=0.85, help='tintshell: blend toward tint (0..1)')
+    # face-protect box (front-centre skin region kept untinted). nansija defaults; eyes ~y0.022 z0.023
+    ap.add_argument('--facez', type=float, default=0.0,   help='tint: protect splats with z > facez (front)')
+    ap.add_argument('--facey', type=float, default=0.03,  help='tint: protect splats with y < facey (below hairline)')
+    ap.add_argument('--facex', type=float, default=0.075, help='tint: protect |x-cx| < facex (face width)')
     a = ap.parse_args()
 
     zin = zipfile.ZipFile(a.inp)
@@ -97,6 +101,13 @@ def main():
         target = (lum > a.lum) & (sat < a.sat)
         if a.mode == 'tintshell':
             target &= shell
+        # Protect the FACE: skin is also bright + desaturated, so exclude the front-centre
+        # box (z>facez front, below the hairline y<facey, within face width |x|<facex). Hair
+        # lives on the top/back/sides -> still tinted; the face keeps its exact colour.
+        cxm = float(np.median(arr[:, idx['x']]))
+        face = (arr[:, idx['z']] > a.facez) & (arr[:, idx['y']] < a.facey) & (np.abs(arr[:, idx['x']] - cxm) < a.facex)
+        target &= ~face
+        print(f"face-protected (excluded {int(face.sum())} front-face splats)")
         hair = np.array(a.tint, dtype=np.float32)
         fidx = [idx['f_dc_0'], idx['f_dc_1'], idx['f_dc_2']]
         cur = rgb[target]
