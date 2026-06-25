@@ -117,7 +117,7 @@ export function createFlameFraming(renderer: Any) {
     cx = (bb.min.x + bb.max.x) / 2; cy = (bb.min.y + bb.max.y) / 2; cz = (bb.min.z + bb.max.z) / 2;
     sy = Math.max(1e-3, bb.max.y - bb.min.y);
   }
-  const DEF = { distMul: 1.45, dy: 0.0, dx: 0.0 };
+  const DEF = { distMul: 0.8, dy: 0.0, dx: 0.0 }; // tighter portrait (smaller = closer = bigger head)
   function load() { try { return { ...DEF, ...JSON.parse(localStorage.getItem("gsFrameFlame") || "{}") }; } catch { return { ...DEF }; } }
   let cfg = load();
   let panelPx = 0; // width of UI covering the RIGHT edge (the panel) — head pans into the clear area
