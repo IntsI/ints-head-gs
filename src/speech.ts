@@ -29,8 +29,9 @@ export const VISEMES: Record<string, Arkit> = {
   sil: {}, // rest / silence — mouth closes via the ease toward empty
 
   // --- consonant classes ---
-  // p b m — lips fully meet, jaw closed
-  PP: { mouthClose: 0.62, mouthPressLeft: 0.30, mouthPressRight: 0.30 },
+  // p b m — lips meet, jaw closed. Kept moderate: a high mouthClose overshoots the
+  // lower lip UP into the upper (reads as a doubled lip), worst on the first syllable.
+  PP: { mouthClose: 0.42, mouthPressLeft: 0.18, mouthPressRight: 0.18 },
   // f v — lower lip to upper teeth (lower lip down a touch). NO mouthRollLower — on
   // FLAME it everts the inner lip into a visible SECOND lip edge during speech.
   FF: { jawOpen: 0.05, mouthLowerDownLeft: 0.26, mouthLowerDownRight: 0.26 },
@@ -46,8 +47,8 @@ export const VISEMES: Record<string, Arkit> = {
   // s z — narrow, slight spread; very small jaw (corners kept modest)
   SS: { jawOpen: 0.05, mouthStretchLeft: 0.18, mouthStretchRight: 0.18,
         mouthSmileLeft: 0.08, mouthSmileRight: 0.08, cheekSquintLeft: 0.04, cheekSquintRight: 0.04 },
-  // n ng — nasal, lips close-ish
-  NN: { jawOpen: 0.10, mouthClose: 0.24 },
+  // n ng — nasal, lips close-ish (modest close → no lower-lip overshoot)
+  NN: { jawOpen: 0.10, mouthClose: 0.16 },
   // r — rounded (pucker only; no funnel → no double lip-ring)
   RR: { jawOpen: 0.12, mouthPucker: 0.30 },
 
@@ -177,6 +178,8 @@ export function createSpeech(): SpeechHandle {
 
   const TAU_LIP = 0.05;  // lips ease fast (crisp consonants); short segs undershoot
   const TAU_JAW = 0.09;  // jaw is heavier/slower → reads semi-independent of the lips
+  const ATTACK = 0.08;   // onset ramp: ease the FIRST viseme in over 80ms from rest so
+                         // a large first frame-step can't snap the lips (start-of-speech blip)
   const TAIL = 0.18;     // keep easing toward sil this long after the last segment
   // anticipation: in the last (1-ANTIC_AT) of a segment, start blending toward the
   // NEXT viseme up to ANTIC_MAX — the mouth pre-forms the next sound (co-articulation).
@@ -224,8 +227,11 @@ export function createSpeech(): SpeechHandle {
       // syllables naturally undershoot since cur can't reach the target in time).
       const kLip = 1 - Math.exp(-dt / TAU_LIP);
       const kJaw = 1 - Math.exp(-dt / TAU_JAW);
+      // onset attack: scale the ease 0→1 over the first ATTACK seconds of an utterance so
+      // the first viseme ramps in from rest (no snap/overshoot on a big first frame-step).
+      const attack = playing ? Math.min(1, (clock - startAt) / ATTACK) : 1;
       for (const c of SPEECH_CHANNELS) {
-        const k = c === "jawOpen" ? kJaw : kLip;
+        const k = (c === "jawOpen" ? kJaw : kLip) * attack;
         cur[c] += ((target[c] ?? 0) - cur[c]) * k;
       }
 
