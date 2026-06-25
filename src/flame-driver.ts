@@ -117,28 +117,38 @@ export function createFlameFraming(renderer: Any) {
     cx = (bb.min.x + bb.max.x) / 2; cy = (bb.min.y + bb.max.y) / 2; cz = (bb.min.z + bb.max.z) / 2;
     sy = Math.max(1e-3, bb.max.y - bb.min.y);
   }
-  const DEF = { distMul: 1.45, dy: 0.0 };
+  const DEF = { distMul: 1.45, dy: 0.0, dx: 0.0 };
   function load() { try { return { ...DEF, ...JSON.parse(localStorage.getItem("gsFrameFlame") || "{}") }; } catch { return { ...DEF }; } }
   let cfg = load();
+  let panelPx = 0; // width of UI covering the RIGHT edge (the panel) — head pans into the clear area
   function apply() {
     if (!ctrl || !cam) return;
     const fov = ((cam.fov || 50) * Math.PI) / 180; // three.js fov is vertical
     const ty = cy + sy * 0.15 + cfg.dy;            // bias up toward eyes/face
     const dist = (sy * cfg.distMul) / (2 * Math.tan(fov / 2));
-    ctrl.target.set(cx, ty, cz);
-    cam.position.set(cx, ty, cz + dist);
+    // when the panel covers the right, pan the head LEFT so it centres in the
+    // visible area (shift target+camera right by half the panel's world width).
+    const viewH = 2 * dist * Math.tan(fov / 2);
+    const screenW = typeof window !== "undefined" ? window.innerWidth : 1920;
+    const aspect = cam.aspect || (typeof window !== "undefined" ? window.innerWidth / window.innerHeight : 1.6);
+    const panWorld = (panelPx / 2) * ((viewH * aspect) / screenW);
+    const tx = cx + panWorld + (cfg.dx ?? 0);
+    ctrl.target.set(tx, ty, cz);
+    cam.position.set(tx, ty, cz + dist);
     cam.near = Math.max(0.01, dist * 0.05); cam.far = dist * 100 + 10;
     cam.updateProjectionMatrix?.();
     ctrl.update();
   }
   return {
     apply,
-    setFrame(p: { distMul?: number; dy?: number }) {
+    setFrame(p: { distMul?: number; dy?: number; dx?: number }) {
       cfg = { ...cfg, ...p };
-      localStorage.setItem("gsFrameFlame", JSON.stringify({ distMul: cfg.distMul, dy: cfg.dy }));
+      localStorage.setItem("gsFrameFlame", JSON.stringify({ distMul: cfg.distMul, dy: cfg.dy, dx: cfg.dx }));
       apply();
       return cfg;
     },
+    /** Tell the framing how many px the panel is covering on the right (0 = none). */
+    setPanelWidth(px: number) { panelPx = px || 0; apply(); },
     get cfg() { return cfg; },
   };
 }
