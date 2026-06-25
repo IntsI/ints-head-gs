@@ -20,6 +20,7 @@
 import { GaussianSplatRenderer } from "gaussian-splat-renderer-for-lam";
 import { createDriver, RECIPES } from "./driver";
 import { createSpeech } from "./speech";
+import { createChat } from "./chat";
 import { createFlameRig, createFlameFraming, EXPR_MAP, type FlameRig } from "./flame-driver";
 import { resolveAvatarPath } from "./avatar";
 
@@ -109,8 +110,33 @@ async function main() {
 
   // (cursor-follow head removed per request — head keeps its idle micro-sway only)
 
-  sayBtn.addEventListener("click", () => { if (phrase.value.trim()) speech.speak(phrase.value.trim()); });
-  phrase.addEventListener("keydown", (e) => { if (e.key === "Enter" && phrase.value.trim()) speech.speak(phrase.value.trim()); });
+  // Connected speech — SAME loop as v1: text/mic -> Gemini -> Google TTS -> the head
+  // speaks (audio-synced visemes) + emotes. createChat injects the real-timed viseme
+  // sequence into `speech` (composited over the living base in the tick) and drives
+  // emotion via the same `driver` v1 uses.
+  const micBtn = document.getElementById("mic")!;
+  const replyEl = document.getElementById("reply");
+  const statusEl = document.getElementById("chatStatus");
+  const setChatStatus = (m: string, k: "" | "ok" | "err" = "") => {
+    if (statusEl) { statusEl.textContent = m; statusEl.className = k; }
+  };
+  const chat = createChat({
+    speak: (seq) => speech.speak(seq),                 // real-timed visemes (audio-synced)
+    setExpression: (key) => driver.setExpression(key), // mood lands then auto-fades
+    onReply: (t) => { if (replyEl) replyEl.textContent = t; },
+    onStatus: setChatStatus,
+    onTranscript: (t) => { phrase.value = t; },
+    onMicState: (on) => micBtn.classList.toggle("listening", on),
+  });
+  if (!chat.micSupported) {
+    micBtn.classList.add("unsupported");
+    micBtn.title = "mic unavailable — this browser has no Web Speech API (use Chrome)";
+  }
+  const send = () => { if (phrase.value.trim()) void chat.send(phrase.value.trim()); };
+  sayBtn.addEventListener("click", send);
+  phrase.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  micBtn.addEventListener("click", () => chat.toggleMic());
+  (window as Any).__chat = chat;
 
   // --- make-or-break: drive jaw via the real slider path, read the bone back ---
   async function proveLive() {
