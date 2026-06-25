@@ -123,7 +123,10 @@ export function createFlameFraming(renderer: Any) {
   function apply() {
     if (!ctrl || !cam) return;
     const fov = ((cam.fov || 50) * Math.PI) / 180; // three.js fov is vertical
-    const ty = cy + sy * 0.15 + cfg.dy;            // bias up toward eyes/face
+    // vertical: aim near the bbox centre so the head sits vertically centred (a big
+    // upward bias makes the camera look ABOVE the head → head drops low). dy nudges
+    // (negative = raise the head).
+    const ty = cy + sy * 0.04 + cfg.dy;
     const dist = (sy * cfg.distMul) / (2 * Math.tan(fov / 2));
     const tx = cx + (cfg.dx ?? 0);                 // centred in the window (dx nudges H)
     ctrl.target.set(tx, ty, cz);
