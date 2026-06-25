@@ -21,12 +21,14 @@
  *   kernel 0.3.
  *
  *   The halo turned out to be the GIANT edge splats, which the antialiased
- *   attenuation barely touches (for a big splat detOrig/detBlur ≈ 1). The real
- *   lever is SIZE: after the 2D eigenvalues are solved, discard any splat whose
- *   screen-space extent (sqrt8*sqrt(eigenValue1)) exceeds uMaxSize. Lowering
- *   uMaxSize culls the oversized hair-edge splats that form the glow while leaving
- *   normal-size surface splats alone. Default uMaxSize 1024 (= the stock clamp, so
- *   no-op until dialed down via window.__SPLAT_MAXSIZE).
+ *   attenuation barely touches (for a big splat detOrig/detBlur ≈ 1). The lever is
+ *   SIZE — but a hard DISCARD of big splats gutted the whole head (lots of body
+ *   splats are big too → holes/spikes). Instead we CLAMP: the stock shader already
+ *   caps splat screen-size via min(extent, maxScreenSpaceSplatSize); we point that
+ *   cap at the uMaxSize uniform. Lowering uMaxSize SHRINKS the over-spread hair-edge
+ *   splats so their glow tightens to the silhouette, while coverage is preserved
+ *   (overlapping neighbours fill in — no holes). Default uMaxSize 1024 (= the stock
+ *   cap, so no-op until dialed down via window.__SPLAT_MAXSIZE).
  */
 import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 
@@ -86,12 +88,16 @@ const PATCHES = [
     },
   },
   {
-    name: "splat-halo: size-discard oversized edge splats (kills the halo)",
+    name: "splat-halo: clamp giant edge splats to uMaxSize (tightens the halo, no holes)",
     marker: "__SPLAT_MAXSIZE__",
     apply(src) {
-      const anchor = "if (eigenValue2 <= 0.0) return;";
-      if (!src.includes(anchor)) return null;
-      return src.replace(anchor, anchor + "\n            if (sqrt8 * sqrt(eigenValue1) > uMaxSize) return; /*__SPLAT_MAXSIZE__*/");
+      // The stock shader already clamps splat screen-size via min(extent, maxScreenSpaceSplatSize).
+      // Point that clamp at the uMaxSize uniform so lowering it SHRINKS the over-spread hair-edge
+      // splats (tightening the glow) WITHOUT deleting them — a hard discard left holes/spikes.
+      if (!src.includes("min(sqrt8 * sqrt(eigenValue1), ${parseInt(maxScreenSpaceSplatSize)}.0)")) return null;
+      return src
+        .replace("min(sqrt8 * sqrt(eigenValue1), ${parseInt(maxScreenSpaceSplatSize)}.0)", "min(sqrt8 * sqrt(eigenValue1), uMaxSize) /*__SPLAT_MAXSIZE__*/")
+        .replace("min(sqrt8 * sqrt(eigenValue2), ${parseInt(maxScreenSpaceSplatSize)}.0)", "min(sqrt8 * sqrt(eigenValue2), uMaxSize)");
     },
   },
   {
