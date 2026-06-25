@@ -40,6 +40,8 @@ def main():
     ap.add_argument('--op', type=float, default=0.3)
     ap.add_argument('--shell', type=float, default=80.0, help='radius percentile for outer shell')
     ap.add_argument('--cap', type=float, default=0.0035, help='shrinkshell: max world scale per axis')
+    ap.add_argument('--tint', type=float, nargs=3, default=[0.69, 0.59, 0.55], help='tintshell: target hair rgb')
+    ap.add_argument('--strength', type=float, default=0.85, help='tintshell: blend toward tint (0..1)')
     a = ap.parse_args()
 
     zin = zipfile.ZipFile(a.inp)
@@ -80,6 +82,29 @@ def main():
         arr[np.ix_(shell, sidx)] = sub
         print(f"shrank {int(shell.sum())} shell splats ({100*shell.mean():.1f}%): "
               f"max axis {before:.4f} -> cap {a.cap}")
+        new_ply = header + arr.tobytes()
+        with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for nm in names:
+                zout.writestr(nm, new_ply if nm == ply_name else zin.read(nm))
+        print(f"wrote {a.out}")
+        return
+    elif a.mode in ('tintshell', 'tintwhite'):
+        # THE REAL FIX: a big part of the hair (the crown) is reconstructed WHITE/grey
+        # (single-image artifact), not a glow. Recolour the desaturated bright splats toward
+        # the warm blonde hair tone. Pure colour edit — geometry/opacity untouched. Because
+        # the blonde target ≈ skin tone, any skin caught by the filter stays fine.
+        #   tintwhite = white anywhere (the whole crown);  tintshell = white on the outer shell only.
+        target = (lum > a.lum) & (sat < a.sat)
+        if a.mode == 'tintshell':
+            target &= shell
+        hair = np.array(a.tint, dtype=np.float32)
+        fidx = [idx['f_dc_0'], idx['f_dc_1'], idx['f_dc_2']]
+        cur = rgb[target]
+        new = cur * (1 - a.strength) + hair[None, :] * a.strength
+        rows = np.where(target)[0]
+        arr[np.ix_(rows, fidx)] = (new - 0.5) / C0   # rgb -> f_dc (SH deg 0)
+        print(f"tinted {len(rows)} white-edge splats ({100*target.mean():.1f}%) "
+              f"toward {a.tint} @ strength {a.strength}")
         new_ply = header + arr.tobytes()
         with zipfile.ZipFile(a.out, 'w', zipfile.ZIP_DEFLATED) as zout:
             for nm in names:
