@@ -127,7 +127,8 @@ async function main() {
   }
 
   // --- live control panel (ARKit morphs): sliders + emotion presets ---
-  const panel = buildPanel(rig, framing);
+  const panel = buildPanel(rig);
+  void framing;
 
   (window as Any).__flame = {
     renderer, rig, driver, speech, framing, AVATAR,
@@ -174,16 +175,14 @@ type PanelApi = {
   getNeutralOffset(): Record<string, number>;
 };
 
-function buildPanel(rig: FlameRig, framing: { setPanelWidth(px: number): void }): PanelApi {
+function buildPanel(rig: FlameRig): PanelApi {
   const $ = (id: string) => document.getElementById(id)!;
   const slidersEl = $("sliders"), presetsEl = $("presets");
   const intensityEl = $("intensity") as HTMLInputElement, intensityVal = $("intensityVal");
   const panelEl = $("panel"), toggle = $("panelToggle");
-  const PANEL_W = panelEl.offsetWidth || 320;
   const setOpen = (open: boolean) => {
     panelEl.classList.toggle("hidden", !open);
     toggle.textContent = open ? "panel ⟨" : "panel ⟩";
-    framing.setPanelWidth(open ? PANEL_W : 0); // re-frame head into the clear area
   };
   toggle.addEventListener("click", () => setOpen(panelEl.classList.contains("hidden")));
   // standalone (not inside compare's iframe) = the v2 EDITOR → open the panel + frame

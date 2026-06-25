@@ -120,19 +120,12 @@ export function createFlameFraming(renderer: Any) {
   const DEF = { distMul: 0.8, dy: 0.0, dx: 0.0 }; // tighter portrait (smaller = closer = bigger head)
   function load() { try { return { ...DEF, ...JSON.parse(localStorage.getItem("gsFrameFlame") || "{}") }; } catch { return { ...DEF }; } }
   let cfg = load();
-  let panelPx = 0; // width of UI covering the RIGHT edge (the panel) — head pans into the clear area
   function apply() {
     if (!ctrl || !cam) return;
     const fov = ((cam.fov || 50) * Math.PI) / 180; // three.js fov is vertical
     const ty = cy + sy * 0.15 + cfg.dy;            // bias up toward eyes/face
     const dist = (sy * cfg.distMul) / (2 * Math.tan(fov / 2));
-    // when the panel covers the right, pan the head LEFT so it centres in the
-    // visible area (shift target+camera right by half the panel's world width).
-    const viewH = 2 * dist * Math.tan(fov / 2);
-    const screenW = typeof window !== "undefined" ? window.innerWidth : 1920;
-    const aspect = cam.aspect || (typeof window !== "undefined" ? window.innerWidth / window.innerHeight : 1.6);
-    const panWorld = (panelPx / 2) * ((viewH * aspect) / screenW);
-    const tx = cx + panWorld + (cfg.dx ?? 0);
+    const tx = cx + (cfg.dx ?? 0);                 // centred in the window (dx nudges H)
     ctrl.target.set(tx, ty, cz);
     cam.position.set(tx, ty, cz + dist);
     cam.near = Math.max(0.01, dist * 0.05); cam.far = dist * 100 + 10;
@@ -147,8 +140,6 @@ export function createFlameFraming(renderer: Any) {
       apply();
       return cfg;
     },
-    /** Tell the framing how many px the panel is covering on the right (0 = none). */
-    setPanelWidth(px: number) { panelPx = px || 0; apply(); },
     get cfg() { return cfg; },
   };
 }
